@@ -1,0 +1,115 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 210 40% 98%;
+    --foreground: 215 28% 17%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 215 28% 17%;
+
+    --primary: 212 92% 43%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 210 40% 96%;
+    --secondary-foreground: 215 28% 17%;
+
+    --teal: 174 72% 36%;
+    --teal-foreground: 0 0% 100%;
+
+    --muted: 210 30% 95%;
+    --muted-foreground: 215 16% 47%;
+
+    --accent: 199 89% 96%;
+    --accent-foreground: 212 92% 33%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 158 64% 36%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 32 95% 48%;
+    --warning-foreground: 0 0% 100%;
+
+    --border: 214 32% 89%;
+    --input: 214 32% 89%;
+    --ring: 212 92% 43%;
+
+    --radius: 0.75rem;
+  }
+
+  .dark {
+    --background: 222 30% 8%;
+    --foreground: 210 25% 92%;
+
+    --card: 222 26% 11%;
+    --card-foreground: 210 25% 92%;
+
+    --primary: 212 92% 58%;
+    --primary-foreground: 222 30% 8%;
+
+    --secondary: 222 22% 16%;
+    --secondary-foreground: 210 25% 92%;
+
+    --teal: 174 65% 48%;
+    --teal-foreground: 222 30% 8%;
+
+    --muted: 222 22% 15%;
+    --muted-foreground: 215 15% 65%;
+
+    --accent: 212 40% 18%;
+    --accent-foreground: 210 90% 78%;
+
+    --destructive: 0 72% 58%;
+    --destructive-foreground: 210 25% 96%;
+
+    --success: 158 55% 46%;
+    --success-foreground: 222 30% 8%;
+
+    --warning: 32 90% 55%;
+    --warning-foreground: 222 30% 8%;
+
+    --border: 222 20% 20%;
+    --input: 222 20% 20%;
+    --ring: 212 92% 58%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  html {
+    color-scheme: light;
+  }
+  html.dark {
+    color-scheme: dark;
+  }
+  body {
+    @apply bg-background text-foreground antialiased transition-colors duration-300;
+    font-family: "Inter", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+}
+
+@layer utilities {
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background: hsl(214 32% 84%);
+    border-radius: 999px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .font-mono-num {
+    font-family: "JetBrains Mono", monospace;
+  }
+}
