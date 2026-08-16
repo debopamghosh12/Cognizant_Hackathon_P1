@@ -1,7 +1,8 @@
 import { useState, useRef, useEffect } from "react";
 import { Search, Bell, ChevronDown, Menu, Calendar, LogOut, Settings, UserCircle, Sun, Moon } from "lucide-react";
-import { cn } from "@/lib/utils";
-import { alerts } from "@/data/mockData";
+import { cn, formatNumber } from "@/lib/utils";
+import { useApi } from "@/lib/useApi";
+import { api } from "@/lib/api";
 import { useTheme } from "@/lib/useTheme";
 
 const pageTitles = {
@@ -38,13 +39,18 @@ export function Topbar({ activePage, setMobileOpen }) {
   }, []);
 
   const meta = pageTitles[activePage] || pageTitles.dashboard;
-  const recentAlerts = alerts.slice(0, 5);
+  const { data: alerts } = useApi(() => api.alerts());
+  const recentAlerts = (alerts || []).slice(0, 5).map((a) => ({
+    id: `${a.sku_id}-${a.region}`,
+    title: `${a.sku_name} — predicted stockout risk`,
+    message: `${a.region_name}: ${a.days_of_cover} days of cover left, reorder ${formatNumber(a.suggested_order_qty)} units`,
+    time: a.recommended_review_cadence,
+    severity: a.severity.toLowerCase(),
+  }));
 
   const severityColor = {
-    critical: "bg-red-500",
     high: "bg-orange-500",
     medium: "bg-amber-500",
-    low: "bg-teal-500",
   };
 
   return (

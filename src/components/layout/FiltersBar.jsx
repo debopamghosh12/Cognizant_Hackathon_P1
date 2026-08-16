@@ -1,11 +1,16 @@
 import { SlidersHorizontal, RotateCcw } from "lucide-react";
 import { Select } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
-import { warehouses, categories, regions } from "@/data/mockData";
+import { useApi } from "@/lib/useApi";
+import { api } from "@/lib/api";
 
 const dateRanges = ["Last 7 days", "Last 14 days", "Last 30 days", "Last Quarter", "Year to Date"];
 
 export function FiltersBar({ filters, setFilters }) {
+  const { data: regions } = useApi(() => api.regions());
+  const { data: skus } = useApi(() => api.skus());
+  const categories = skus ? [...new Set(skus.map((s) => s.category))].sort() : [];
+
   function update(key, value) {
     setFilters((f) => ({ ...f, [key]: value }));
   }
@@ -23,9 +28,9 @@ export function FiltersBar({ filters, setFilters }) {
       <div className="grid flex-1 grid-cols-2 gap-2.5 sm:grid-cols-4">
         <Select value={filters.warehouse} onChange={(e) => update("warehouse", e.target.value)}>
           <option value="All">All Warehouses</option>
-          {warehouses.map((w) => (
-            <option key={w.id} value={w.name}>
-              {w.name}
+          {(regions || []).map((r) => (
+            <option key={r.region_id} value={r.name}>
+              {r.name}
             </option>
           ))}
         </Select>
@@ -39,9 +44,9 @@ export function FiltersBar({ filters, setFilters }) {
         </Select>
         <Select value={filters.region} onChange={(e) => update("region", e.target.value)}>
           <option value="All">All Regions</option>
-          {regions.map((r) => (
-            <option key={r} value={r}>
-              {r}
+          {(regions || []).map((r) => (
+            <option key={r.region_id} value={r.name}>
+              {r.name}
             </option>
           ))}
         </Select>

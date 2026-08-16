@@ -1,54 +1,106 @@
-import { FileText, Download, FileBarChart } from "lucide-react";
+import { FileBarChart, TrendingUp, Target } from "lucide-react";
 import { Card, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { reports } from "@/data/mockData";
-
-const typeColor = {
-  Replenishment: "default",
-  Expiry: "warning",
-  Forecast: "teal",
-  Warehouse: "secondary",
-  Inventory: "destructive",
-};
+import { LoadingState, ErrorState } from "@/components/ui/state";
+import { useApi } from "@/lib/useApi";
+import { api } from "@/lib/api";
+import { formatCompact } from "@/lib/utils";
 
 export function ReportsPage() {
+  const { data, loading, error } = useApi(() =>
+    Promise.all([api.demandTrend(), api.categoryBreakdown(), api.accuracy(7)])
+  );
+  const [demandTrend, categoryBreakdown, accuracy] = data || [null, null, null];
+
+  if (loading) return <LoadingState label="Loading reports..." />;
+  if (error || !data) return <ErrorState />;
+
   return (
     <div className="space-y-5">
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <FileBarChart className="h-4 w-4 text-primary" />
-            Generated Reports
+            <TrendingUp className="h-4 w-4 text-primary" />
+            Monthly Demand Trend
           </CardTitle>
-          <CardDescription>Download planning, forecast, and audit reports</CardDescription>
+          <CardDescription>Total sensed demand by month, network-wide</CardDescription>
         </CardHeader>
-        <div className="grid grid-cols-1 gap-4 px-5 pb-5 sm:grid-cols-2 xl:grid-cols-3">
-          {reports.map((r) => (
-            <div
-              key={r.id}
-              className="flex flex-col rounded-lg border border-border p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-card-hover"
-            >
-              <div className="flex items-start justify-between">
-                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
-                  <FileText className="h-5 w-5 text-primary" />
-                </div>
-                <Badge variant={typeColor[r.type] || "secondary"}>{r.type}</Badge>
-              </div>
-              <p className="mt-3 text-sm font-semibold leading-snug text-foreground">{r.name}</p>
-              <div className="mt-2 flex items-center gap-2 text-[11px] text-muted-foreground">
-                <span>{r.generated}</span>
-                <span>&middot;</span>
-                <span>{r.format}</span>
-                <span>&middot;</span>
-                <span>{r.size}</span>
-              </div>
-              <Button variant="outline" size="sm" className="mt-4">
-                <Download className="h-3.5 w-3.5" />
-                Download
-              </Button>
-            </div>
-          ))}
+        <div className="scrollbar-thin overflow-x-auto px-5 pb-5">
+          <table className="w-full min-w-[420px] text-sm">
+            <thead>
+              <tr className="border-y border-border bg-muted/50 text-left text-xs font-semibold text-muted-foreground">
+                <th className="px-3 py-2.5">Month</th>
+                <th className="px-3 py-2.5 text-right">Total Demand</th>
+              </tr>
+            </thead>
+            <tbody>
+              {demandTrend.map((row) => (
+                <tr key={row.month} className="border-b border-border last:border-0">
+                  <td className="px-3 py-2.5 text-foreground">{row.month}</td>
+                  <td className="px-3 py-2.5 text-right font-mono-num text-foreground">{formatCompact(row.demand)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <FileBarChart className="h-4 w-4 text-primary" />
+            Category Breakdown
+          </CardTitle>
+          <CardDescription>Total sensed demand by therapeutic category</CardDescription>
+        </CardHeader>
+        <div className="scrollbar-thin overflow-x-auto px-5 pb-5">
+          <table className="w-full min-w-[420px] text-sm">
+            <thead>
+              <tr className="border-y border-border bg-muted/50 text-left text-xs font-semibold text-muted-foreground">
+                <th className="px-3 py-2.5">Category</th>
+                <th className="px-3 py-2.5 text-right">Total Demand</th>
+              </tr>
+            </thead>
+            <tbody>
+              {categoryBreakdown.map((row) => (
+                <tr key={row.category} className="border-b border-border last:border-0">
+                  <td className="px-3 py-2.5 text-foreground">{row.category}</td>
+                  <td className="px-3 py-2.5 text-right font-mono-num text-foreground">{formatCompact(row.demand)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Target className="h-4 w-4 text-primary" />
+            Forecast Accuracy — 7-Day Backtest
+          </CardTitle>
+          <CardDescription>
+            Overall MAPE: {accuracy.mape != null ? `${accuracy.mape}%` : "—"} across {accuracy.sample_size} samples
+          </CardDescription>
+        </CardHeader>
+        <div className="scrollbar-thin overflow-x-auto px-5 pb-5">
+          <table className="w-full min-w-[420px] text-sm">
+            <thead>
+              <tr className="border-y border-border bg-muted/50 text-left text-xs font-semibold text-muted-foreground">
+                <th className="px-3 py-2.5">SKU</th>
+                <th className="px-3 py-2.5 text-right">MAPE</th>
+              </tr>
+            </thead>
+            <tbody>
+              {accuracy.by_sku.map((row) => (
+                <tr key={row.sku_id} className="border-b border-border last:border-0">
+                  <td className="px-3 py-2.5 text-foreground">
+                    {row.sku_id} <span className="text-xs text-muted-foreground">{row.sku_name}</span>
+                  </td>
+                  <td className="px-3 py-2.5 text-right font-mono-num text-foreground">{row.mape}%</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       </Card>
     </div>

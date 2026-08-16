@@ -1,7 +1,9 @@
-import { Boxes, Target, AlertOctagon, Timer, Warehouse, ClipboardList, ArrowUp, ArrowDown } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Boxes, Target, AlertOctagon, Timer, Warehouse, ClipboardList } from "lucide-react";
 import { Card } from "@/components/ui/card";
+import { LoadingState, ErrorState } from "@/components/ui/state";
 import { cn, formatCompact, formatCurrency } from "@/lib/utils";
-import { kpis } from "@/data/mockData";
+import { api } from "@/lib/api";
 
 const cardsConfig = [
   {
@@ -30,7 +32,7 @@ const cardsConfig = [
   },
   {
     key: "expiringStockValue",
-    label: "Expiring Stock Value",
+    label: "Expiring Stock Value (30d)",
     icon: Timer,
     color: "text-warning",
     bg: "bg-warning/10",
@@ -55,13 +57,52 @@ const cardsConfig = [
 ];
 
 export function KpiCards() {
+  const [kpis, setKpis] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([api.forecastAll(), api.replenishAll(), api.expiryExposure(30), api.accuracy(7)])
+      .then(([forecastAll, replenishAll, expiryExposure, accuracy]) => {
+        if (cancelled) return;
+
+        const totalInventory = forecastAll.reduce((s, r) => s + r.current_row.current_stock, 0);
+        const totalCapacity = forecastAll.reduce((s, r) => s + r.current_row.warehouse_capacity, 0);
+        const criticalShortages = new Set(
+          replenishAll.filter((r) => r.needs_reorder && r.current_stock <= 0).map((r) => r.sku_id)
+        ).size;
+
+        setKpis({
+          totalInventory: { value: Math.round(totalInventory) },
+          forecastAccuracy: { value: accuracy.mape != null ? Math.round((100 - accuracy.mape) * 10) / 10 : "—" },
+          criticalShortages: { value: criticalShortages },
+          expiringStockValue: { value: Math.round(expiryExposure.total_value_at_risk) },
+          warehouseFillRate: {
+            value: totalCapacity > 0 ? Math.round((totalInventory / totalCapacity) * 1000) / 10 : 0,
+          },
+          replenishmentPending: { value: replenishAll.filter((r) => r.needs_reorder).length },
+        });
+      })
+      .catch((e) => {
+        if (!cancelled) setError(e);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (loading) return <LoadingState label="Loading KPIs..." />;
+  if (error || !kpis) return <ErrorState />;
+
   return (
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
       {cardsConfig.map((cfg) => {
         const data = kpis[cfg.key];
         const Icon = cfg.icon;
-        const isGoodTrend = data.trend === "up" || data.trend === "down_good";
-        const TrendIcon = data.change >= 0 ? ArrowUp : ArrowDown;
 
         return (
           <Card key={cfg.key} className="animate-fade-in p-5">
@@ -75,19 +116,6 @@ export function KpiCards() {
               <div className={cn("flex h-10 w-10 items-center justify-center rounded-lg", cfg.bg)}>
                 <Icon className={cn("h-5 w-5", cfg.color)} strokeWidth={2} />
               </div>
-            </div>
-            <div className="mt-3 flex items-center gap-1.5">
-              <span
-                className={cn(
-                  "flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[11px] font-semibold",
-                  isGoodTrend ? "bg-success/10 text-success" : "bg-destructive/10 text-destructive"
-                )}
-              >
-                <TrendIcon className="h-3 w-3" />
-                {Math.abs(data.change)}
-                {cfg.key === "criticalShortages" || cfg.key === "replenishmentPending" ? "" : "%"}
-              </span>
-              <span className="text-[11px] text-muted-foreground">vs last period</span>
             </div>
           </Card>
         );

@@ -4,74 +4,101 @@ import { DemandForecastChart } from "@/components/charts/DemandForecastChart";
 import { HistoricalVsSensedChart } from "@/components/charts/HistoricalVsSensedChart";
 import { Card, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { LoadingState, ErrorState } from "@/components/ui/state";
+import { useApi } from "@/lib/useApi";
+import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
-const forecastStats = [
-  { label: "Forecast Accuracy (MAPE)", value: "91.4%", icon: Target, color: "text-primary", bg: "bg-primary/10" },
-  { label: "Demand Sensing Uplift", value: "+8.9%", icon: Zap, color: "text-teal", bg: "bg-teal/10" },
-  { label: "Signals Processed / Day", value: "1.2M", icon: Activity, color: "text-warning", bg: "bg-warning/10" },
-  { label: "Categories Trending Up", value: "6 of 10", icon: TrendingUp, color: "text-success", bg: "bg-success/10" },
-];
-
-const categoryDemand = [
-  { name: "Antibiotics", change: 34, direction: "up" },
-  { name: "Respiratory", change: 22, direction: "up" },
-  { name: "Cardiac Care", change: 11, direction: "up" },
-  { name: "Diabetes Care", change: 9, direction: "up" },
-  { name: "Vaccines", change: 6, direction: "up" },
-  { name: "Gastro Care", change: 4, direction: "up" },
-  { name: "Analgesics", change: -2, direction: "down" },
-  { name: "Antipyretics", change: -3, direction: "down" },
-  { name: "Dermatology", change: -5, direction: "down" },
-  { name: "Vitamins & Supplements", change: -6, direction: "down" },
+// "Demand Sensing Uplift" and "Signals Processed / Day" have no backend source yet
+// (no sensed-vs-statistical comparison or signal-ingestion metric exists) — left static.
+const staticStats = [
+  { label: "Demand Sensing Uplift", value: "N/A", icon: Zap, color: "text-teal", bg: "bg-teal/10" },
+  { label: "Signals Processed / Day", value: "N/A", icon: Activity, color: "text-warning", bg: "bg-warning/10" },
 ];
 
 export function ForecastPage({ filters, setFilters }) {
+  const { data, loading, error } = useApi(() =>
+    Promise.all([api.accuracy(7), api.categoryBreakdown()])
+  );
+  const [accuracy, categoryBreakdown] = data || [null, null];
+  const totalDemand = categoryBreakdown ? categoryBreakdown.reduce((s, c) => s + c.demand, 0) : 0;
+
   return (
     <div className="space-y-5">
       <FiltersBar filters={filters} setFilters={setFilters} />
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {forecastStats.map((s) => {
-          const Icon = s.icon;
-          return (
-            <Card key={s.label} className="p-5">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-xs font-medium text-muted-foreground">{s.label}</p>
-                  <p className="mt-2 text-2xl font-bold text-foreground font-mono-num">{s.value}</p>
-                </div>
-                <div className={cn("flex h-10 w-10 items-center justify-center rounded-lg", s.bg)}>
-                  <Icon className={cn("h-5 w-5", s.color)} />
-                </div>
+      {loading && <LoadingState label="Loading forecast stats..." />}
+      {!loading && (error || !accuracy) && <ErrorState />}
+      {!loading && !error && accuracy && (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <Card className="p-5">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs font-medium text-muted-foreground">Forecast Error (MAPE, 7-day backtest)</p>
+                <p className="mt-2 text-2xl font-bold text-foreground font-mono-num">
+                  {accuracy.mape != null ? `${accuracy.mape}%` : "—"}
+                </p>
               </div>
-            </Card>
-          );
-        })}
-      </div>
+              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
+                <Target className="h-5 w-5 text-primary" />
+              </div>
+            </div>
+          </Card>
+          <Card className="p-5">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs font-medium text-muted-foreground">Categories Tracked</p>
+                <p className="mt-2 text-2xl font-bold text-foreground font-mono-num">
+                  {categoryBreakdown ? categoryBreakdown.length : "—"}
+                </p>
+              </div>
+              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-success/10">
+                <TrendingUp className="h-5 w-5 text-success" />
+              </div>
+            </div>
+          </Card>
+          {staticStats.map((s) => {
+            const Icon = s.icon;
+            return (
+              <Card key={s.label} className="p-5">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-xs font-medium text-muted-foreground">{s.label}</p>
+                    <p className="mt-2 text-2xl font-bold text-foreground font-mono-num">{s.value}</p>
+                  </div>
+                  <div className={cn("flex h-10 w-10 items-center justify-center rounded-lg", s.bg)}>
+                    <Icon className={cn("h-5 w-5", s.color)} />
+                  </div>
+                </div>
+              </Card>
+            );
+          })}
+        </div>
+      )}
 
       <DemandForecastChart />
       <HistoricalVsSensedChart />
 
       <Card>
         <CardHeader>
-          <CardTitle>Category-Level Demand Signal</CardTitle>
-          <CardDescription>7-day sensed demand change vs. rolling average, by therapeutic category</CardDescription>
+          <CardTitle>Category-Level Demand Breakdown</CardTitle>
+          <CardDescription>Share of total sensed demand by therapeutic category</CardDescription>
         </CardHeader>
-        <div className="grid grid-cols-1 gap-3 px-5 pb-5 sm:grid-cols-2 lg:grid-cols-3">
-          {categoryDemand.map((c) => (
-            <div
-              key={c.name}
-              className="flex items-center justify-between rounded-lg border border-border p-3.5 hover:shadow-card-hover transition-shadow"
-            >
-              <span className="text-sm font-medium text-foreground">{c.name}</span>
-              <Badge variant={c.direction === "up" ? "success" : "muted"}>
-                {c.direction === "up" ? "+" : ""}
-                {c.change}%
-              </Badge>
-            </div>
-          ))}
-        </div>
+        {loading && <LoadingState label="Loading category breakdown..." />}
+        {!loading && (error || !categoryBreakdown) && <ErrorState />}
+        {!loading && !error && categoryBreakdown && (
+          <div className="grid grid-cols-1 gap-3 px-5 pb-5 sm:grid-cols-2 lg:grid-cols-3">
+            {categoryBreakdown.map((c) => (
+              <div
+                key={c.category}
+                className="flex items-center justify-between rounded-lg border border-border p-3.5 hover:shadow-card-hover transition-shadow"
+              >
+                <span className="text-sm font-medium text-foreground">{c.category}</span>
+                <Badge variant="muted">{Math.round((c.demand / totalDemand) * 1000) / 10}%</Badge>
+              </div>
+            ))}
+          </div>
+        )}
       </Card>
     </div>
   );

@@ -8,7 +8,10 @@ export function InventoryTrendChart() {
     <Card>
       <CardHeader>
         <CardTitle>Inventory Trend</CardTitle>
-        <CardDescription>6-week rolling stock composition across the network</CardDescription>
+        <CardDescription>
+          6-week rolling stock composition across the network (demo data — backend has no historical
+          stock-status time series yet)
+        </CardDescription>
       </CardHeader>
       <CardContent>
         <ResponsiveContainer width="100%" height={280}>

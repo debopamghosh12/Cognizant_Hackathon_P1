@@ -11,7 +11,8 @@ import {
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { alerts } from "@/data/mockData";
+import { useApi } from "@/lib/useApi";
+import { api } from "@/lib/api";
 
 const navItems = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -25,7 +26,8 @@ const navItems = [
 ];
 
 export function Sidebar({ activePage, setActivePage, mobileOpen, setMobileOpen }) {
-  const criticalAlertCount = alerts.filter((a) => a.severity === "critical").length;
+  const { data: alerts } = useApi(() => api.alerts());
+  const criticalAlertCount = (alerts || []).filter((a) => a.severity === "HIGH").length;
 
   return (
     <>
