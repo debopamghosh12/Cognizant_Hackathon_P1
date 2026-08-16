@@ -94,30 +94,52 @@ def gen_history():
 
 
 def gen_current_state(history_df):
-    """Latest snapshot per SKU x region, with a simulated near-expiry batch."""
+    """Latest snapshot per SKU x region, with a simulated near-expiry batch.
+    Also returns itemized batch-level rows (batches_df) for the Expiry page."""
     latest = (history_df.sort_values("date")
               .groupby(["sku_id", "region"]).tail(1)
               .reset_index(drop=True))
     rows = []
+    batch_rows = []
+    batch_counter = 1
     for _, r in latest.iterrows():
         prof = SKU_PROFILE[r["sku_id"]]
-        # simulate 1-3 batches with varying expiry
+        total_stock = r["current_stock"]
         n_batches = int(rng.integers(1, 4))
         remaining_expiries = sorted(rng.integers(5, prof["shelf_life_days"], size=n_batches))
+
+        # split total_stock across batches (roughly even, last batch takes remainder)
+        splits = rng.dirichlet(np.ones(n_batches)) * total_stock
+        for i in range(n_batches):
+            qty = round(float(splits[i]), 1)
+            exp_days = int(remaining_expiries[i])
+            exp_date = (END_DATE + timedelta(days=exp_days)).strftime("%Y-%m-%d")
+            batch_rows.append({
+                "batch_id": f"BATCH_{batch_counter:05d}",
+                "sku_id": r["sku_id"],
+                "region": r["region"],
+                "quantity": qty,
+                "expiry_days": exp_days,
+                "expiry_date": exp_date,
+            })
+            batch_counter += 1
+
         nearest_expiry = int(remaining_expiries[0])
         row = r.to_dict()
         row["nearest_batch_expiry_days"] = nearest_expiry
         row["num_batches"] = n_batches
         rows.append(row)
-    return pd.DataFrame(rows)
+    return pd.DataFrame(rows), pd.DataFrame(batch_rows)
 
 
 if __name__ == "__main__":
-    os.makedirs(os.path.join(os.path.dirname(__file__), "data"), exist_ok=True)
+    data_dir = os.path.join(os.path.dirname(__file__), "data")
+    os.makedirs(data_dir, exist_ok=True)
     hist = gen_history()
-    current = gen_current_state(hist)
-    hist.to_csv(os.path.join(os.path.dirname(__file__), "data", "history.csv"), index=False)
-    current.to_csv(os.path.join(os.path.dirname(__file__), "data", "current_state.csv"), index=False)
-    print(f"History: {len(hist)} rows | Current state: {len(current)} rows")
+    current, batches = gen_current_state(hist)
+    hist.to_csv(os.path.join(data_dir, "history.csv"), index=False)
+    current.to_csv(os.path.join(data_dir, "current_state.csv"), index=False)
+    batches.to_csv(os.path.join(data_dir, "batches.csv"), index=False)
+    print(f"History: {len(hist)} rows | Current state: {len(current)} rows | Batches: {len(batches)} rows")
     print(f"SKUs: {len(SKUS)} | Regions: {len(REGIONS)}")
     print(hist.head())
