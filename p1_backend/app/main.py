@@ -4,6 +4,7 @@ FastAPI backend serving forecast, expiry-aware allocation, replenishment
 sizing, stockout escalation, warehouse summary, and reporting endpoints.
 """
 import os
+import time
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
@@ -30,12 +31,19 @@ app.add_middleware(
 )
 
 SAFETY_STOCK_Z = 1.65
+ACCURACY_SAMPLE_DAYS_DEFAULT = 3
 
-# Simple in-memory cache for the expensive bulk endpoints. The underlying
-# CSVs are loaded once at startup and never change during the process's
-# lifetime, so these results are safe to compute once and reuse. Cleared
-# via POST /admin/clear-cache (e.g. after regenerating data).
-_CACHE = {}
+# HISTORY/CURRENT/BATCHES are static for the life of the process, so every
+# model-driven result is precomputed once at startup (see _precompute_all)
+# and stored here. Every request-time endpoint is then a pure dict lookup
+# instead of live XGBoost inference — this is what keeps requests fast on
+# the free-tier host, where a single live prediction can take seconds.
+PRECOMPUTED_FORECASTS = {}   # (sku_id, region) -> forecast dict
+PRECOMPUTED_FORECAST_ALL = []  # forecast dicts + sku_name/region_name, CURRENT row order
+PRECOMPUTED_REPLENISH = {}   # (sku_id, region) -> replenish dict
+PRECOMPUTED_ALLOCATE = {}    # sku_id -> allocation plan dict
+PRECOMPUTED_ALERTS = []      # full alerts list
+PRECOMPUTED_ACCURACY = {}    # accuracy backtest result (sample_days=3)
 
 # In-memory purchase order store — fine for a hackathon demo, no DB needed.
 # Resets whenever the process restarts.
@@ -73,9 +81,10 @@ def _forecast_one(sku_id, region, target_date=None):
             "forecast_demand": round(pred, 1), "current_row": row}
 
 
-def _replenish_one(sku_id, region):
+def _replenish_one(sku_id, region, fc=None):
     row = _row_for(sku_id, region)
-    fc = _forecast_one(sku_id, region)
+    if fc is None:
+        fc = _forecast_one(sku_id, region)
     sub = HISTORY[(HISTORY.sku_id == sku_id) & (HISTORY.region == region)].sort_values("date").tail(28)
     demand_std = float(sub["demand"].std())
     lead_time = row["lead_time_days"]
@@ -118,30 +127,9 @@ def list_regions():
             for r in sorted(CURRENT.region.unique())]
 
 
-@app.post("/predict")
-def predict(req: PredictRequest):
-    return _forecast_one(req.sku_id, req.region, req.target_date)
-
-
-@app.get("/forecast/all")
-def forecast_all(target_date: Optional[str] = None):
-    cache_key = f"forecast_all:{target_date}"
-    if cache_key in _CACHE:
-        return _CACHE[cache_key]
-
-    results = []
-    for _, r in CURRENT.iterrows():
-        fc = _forecast_one(r["sku_id"], r["region"], target_date)
-        fc["sku_name"] = SKU_META.get(r["sku_id"], {}).get("name", r["sku_id"])
-        fc["region_name"] = REGION_META.get(r["region"], {}).get("name", r["region"])
-        results.append(fc)
-
-    _CACHE[cache_key] = results
-    return results
-
-
-@app.get("/allocate")
-def allocate(sku_id: str):
+def _build_allocate(sku_id):
+    """Live computation of an allocation plan. Only used at startup
+    precompute time — the /allocate endpoints serve PRECOMPUTED_ALLOCATE."""
     rows = CURRENT[CURRENT.sku_id == sku_id]
     if rows.empty:
         raise HTTPException(404, f"Unknown sku_id {sku_id}")
@@ -149,7 +137,7 @@ def allocate(sku_id: str):
 
     plan = []
     for _, r in rows.iterrows():
-        fc = _forecast_one(sku_id, r["region"])
+        fc = PRECOMPUTED_FORECASTS.get((sku_id, r["region"])) or _forecast_one(sku_id, r["region"])
         plan.append({
             "region": r["region"], "region_name": REGION_META.get(r["region"], {}).get("name", r["region"]),
             "current_stock": r["current_stock"],
@@ -179,54 +167,59 @@ def allocate(sku_id: str):
             "allocation_plan": plan}
 
 
+@app.post("/predict")
+def predict(req: PredictRequest):
+    if req.target_date:
+        return _forecast_one(req.sku_id, req.region, req.target_date)
+    fc = PRECOMPUTED_FORECASTS.get((req.sku_id, req.region))
+    if fc is None:
+        _row_for(req.sku_id, req.region)  # raises the standard 404
+    return fc
+
+
+@app.get("/forecast/all")
+def forecast_all(target_date: Optional[str] = None):
+    if target_date:
+        results = []
+        for _, r in CURRENT.iterrows():
+            fc = _forecast_one(r["sku_id"], r["region"], target_date)
+            fc["sku_name"] = SKU_META.get(r["sku_id"], {}).get("name", r["sku_id"])
+            fc["region_name"] = REGION_META.get(r["region"], {}).get("name", r["region"])
+            results.append(fc)
+        return results
+
+    return PRECOMPUTED_FORECAST_ALL
+
+
+@app.get("/allocate")
+def allocate(sku_id: str):
+    plan = PRECOMPUTED_ALLOCATE.get(sku_id)
+    if plan is None:
+        raise HTTPException(404, f"Unknown sku_id {sku_id}")
+    return plan
+
+
 @app.get("/allocate/all")
 def allocate_all():
-    if "allocate_all" in _CACHE:
-        return _CACHE["allocate_all"]
-
-    result = [allocate(sku) for sku in sorted(CURRENT.sku_id.unique())]
-    _CACHE["allocate_all"] = result
-    return result
+    return [PRECOMPUTED_ALLOCATE[sku] for sku in sorted(PRECOMPUTED_ALLOCATE)]
 
 
 @app.get("/replenish")
 def replenish(sku_id: str, region: str):
-    return _replenish_one(sku_id, region)
+    rep = PRECOMPUTED_REPLENISH.get((sku_id, region))
+    if rep is None:
+        _row_for(sku_id, region)  # raises the standard 404
+    return rep
 
 
 @app.get("/replenish/all")
 def replenish_all():
-    if "replenish_all" in _CACHE:
-        return _CACHE["replenish_all"]
-
-    out = []
-    for _, r in CURRENT.iterrows():
-        out.append(_replenish_one(r["sku_id"], r["region"]))
-
-    _CACHE["replenish_all"] = out
-    return out
+    return list(PRECOMPUTED_REPLENISH.values())
 
 
 @app.get("/alerts")
 def alerts():
-    if "alerts" in _CACHE:
-        return _CACHE["alerts"]
-
-    out = []
-    for _, r in CURRENT.iterrows():
-        if r["sku_criticality"] != "Critical":
-            continue
-        rep = _replenish_one(r["sku_id"], r["region"])
-        if rep["needs_reorder"]:
-            days_cover = rep["current_stock"] / max(rep["forecast_daily_demand"], 1)
-            severity = "HIGH" if days_cover < rep["lead_time_days"] else "MEDIUM"
-            cadence = "Daily review" if severity == "HIGH" else "Every 3 days"
-            out.append({**rep, "days_of_cover": round(days_cover, 1),
-                        "severity": severity, "recommended_review_cadence": cadence})
-    out.sort(key=lambda x: x["days_of_cover"])
-
-    _CACHE["alerts"] = out
-    return out
+    return PRECOMPUTED_ALERTS
 
 
 @app.get("/inventory/batches")
@@ -280,12 +273,7 @@ def category_breakdown():
     return out.to_dict(orient="records")
 
 
-@app.get("/reports/accuracy")
-def accuracy(sample_days: int = 7):
-    cache_key = f"accuracy:{sample_days}"
-    if cache_key in _CACHE:
-        return _CACHE[cache_key]
-
+def _build_accuracy(sample_days):
     all_dates = sorted(HISTORY.date.unique())[-sample_days:]
     errors = []
     for _, cur in CURRENT.iterrows():
@@ -306,18 +294,22 @@ def accuracy(sample_days: int = 7):
             errors.append({"sku_id": sku_id, "ape": ape})
 
     if not errors:
-        result = {"mape": None, "sample_size": 0, "by_sku": []}
-        _CACHE[cache_key] = result
-        return result
+        return {"mape": None, "sample_size": 0, "by_sku": []}
 
     err_df = pd.DataFrame(errors)
     overall_mape = round(float(err_df["ape"].mean()), 2)
     by_sku = (err_df.groupby("sku_id")["ape"].mean().round(2)
               .reset_index().rename(columns={"ape": "mape"}))
     by_sku["sku_name"] = by_sku.sku_id.map(lambda s: SKU_META.get(s, {}).get("name", s))
-    result = {"mape": overall_mape, "sample_size": len(err_df), "by_sku": by_sku.to_dict(orient="records")}
-    _CACHE[cache_key] = result
-    return result
+    return {"mape": overall_mape, "sample_size": len(err_df), "by_sku": by_sku.to_dict(orient="records")}
+
+
+@app.get("/reports/accuracy")
+def accuracy(sample_days: int = ACCURACY_SAMPLE_DAYS_DEFAULT):
+    if sample_days == ACCURACY_SAMPLE_DAYS_DEFAULT:
+        return PRECOMPUTED_ACCURACY
+    # Non-default sample_days is a rare, ad-hoc report request — compute live.
+    return _build_accuracy(sample_days)
 
 
 @app.get("/warehouses/summary")
@@ -351,13 +343,6 @@ def warehouses_summary():
     return out
 
 
-@app.post("/admin/clear-cache")
-def clear_cache():
-    n = len(_CACHE)
-    _CACHE.clear()
-    return {"status": "ok", "entries_cleared": n}
-
-
 @app.post("/purchase-orders/create")
 def create_purchase_orders(req: CreatePurchaseOrdersRequest):
     global _PO_COUNTER
@@ -366,9 +351,8 @@ def create_purchase_orders(req: CreatePurchaseOrdersRequest):
     skipped = []
 
     for item in req.items:
-        try:
-            rep = _replenish_one(item.sku_id, item.region)
-        except HTTPException:
+        rep = PRECOMPUTED_REPLENISH.get((item.sku_id, item.region))
+        if rep is None:
             skipped.append({"sku_id": item.sku_id, "region": item.region, "reason": "unknown sku_id/region"})
             continue
 
@@ -414,3 +398,50 @@ def warehouse_detail(region_id: str):
         })
     meta = REGION_META.get(region_id, {})
     return {"region_id": region_id, **meta, "skus": skus}
+
+
+def _precompute_all():
+    """Runs once at process startup. HISTORY/CURRENT/BATCHES never change
+    after being loaded, so every model-driven result is computed exactly
+    once here and served as a plain dict lookup from then on."""
+    start = time.perf_counter()
+
+    for _, r in CURRENT.iterrows():
+        key = (r["sku_id"], r["region"])
+        fc = _forecast_one(r["sku_id"], r["region"])
+        PRECOMPUTED_FORECASTS[key] = fc
+        PRECOMPUTED_FORECAST_ALL.append({
+            **fc,
+            "sku_name": SKU_META.get(r["sku_id"], {}).get("name", r["sku_id"]),
+            "region_name": REGION_META.get(r["region"], {}).get("name", r["region"]),
+        })
+        PRECOMPUTED_REPLENISH[key] = _replenish_one(r["sku_id"], r["region"], fc=fc)
+
+    for sku_id in sorted(CURRENT.sku_id.unique()):
+        PRECOMPUTED_ALLOCATE[sku_id] = _build_allocate(sku_id)
+
+    alerts_out = []
+    for _, r in CURRENT.iterrows():
+        if r["sku_criticality"] != "Critical":
+            continue
+        rep = PRECOMPUTED_REPLENISH[(r["sku_id"], r["region"])]
+        if rep["needs_reorder"]:
+            days_cover = rep["current_stock"] / max(rep["forecast_daily_demand"], 1)
+            severity = "HIGH" if days_cover < rep["lead_time_days"] else "MEDIUM"
+            cadence = "Daily review" if severity == "HIGH" else "Every 3 days"
+            alerts_out.append({**rep, "days_of_cover": round(days_cover, 1),
+                                "severity": severity, "recommended_review_cadence": cadence})
+    alerts_out.sort(key=lambda x: x["days_of_cover"])
+    PRECOMPUTED_ALERTS.extend(alerts_out)
+
+    PRECOMPUTED_ACCURACY.update(_build_accuracy(ACCURACY_SAMPLE_DAYS_DEFAULT))
+
+    elapsed = time.perf_counter() - start
+    print(f"[startup] precomputed {len(PRECOMPUTED_FORECASTS)} forecasts, "
+          f"{len(PRECOMPUTED_REPLENISH)} replenishment plans, "
+          f"{len(PRECOMPUTED_ALLOCATE)} allocation plans, "
+          f"{len(PRECOMPUTED_ALERTS)} alerts, and the accuracy backtest "
+          f"in {elapsed:.2f}s", flush=True)
+
+
+_precompute_all()
