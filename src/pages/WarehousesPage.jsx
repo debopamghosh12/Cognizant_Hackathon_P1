@@ -30,7 +30,7 @@ export function WarehousesPage({ filters, setFilters }) {
                   <th className="px-5 py-2.5">Distribution Center</th>
                   <th className="px-5 py-2.5">Region Type</th>
                   <th className="px-5 py-2.5">City</th>
-                  <th className="px-5 py-2.5 text-right">SKUs Stocked</th>
+                  <th className="px-5 py-2.5 text-right">Stockouts</th>
                   <th className="px-5 py-2.5 text-right">Capacity (Units)</th>
                   <th className="px-5 py-2.5 text-right">Current Stock</th>
                 </tr>
@@ -41,7 +41,7 @@ export function WarehousesPage({ filters, setFilters }) {
                     <td className="px-5 py-3 font-semibold text-foreground">{w.name}</td>
                     <td className="px-5 py-3 text-muted-foreground">{w.region}</td>
                     <td className="px-5 py-3 text-muted-foreground">{w.city}</td>
-                    <td className="px-5 py-3 text-right font-mono-num text-foreground">{w.skuCount}</td>
+                    <td className="px-5 py-3 text-right font-mono-num text-foreground">{w.stockoutCount}</td>
                     <td className="px-5 py-3 text-right font-mono-num text-foreground">
                       {formatNumber(w.capacityUnits)}
                     </td>

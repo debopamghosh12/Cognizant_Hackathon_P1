@@ -1,7 +1,7 @@
 """
 P1 — Demand Sensing & Replenishment Planning for MedCare Pharma
 FastAPI backend serving forecast, expiry-aware allocation, replenishment
-sizing, stockout escalation, and lightweight reporting endpoints.
+sizing, stockout escalation, warehouse summary, and reporting endpoints.
 """
 import os
 import pandas as pd
@@ -29,7 +29,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-SAFETY_STOCK_Z = 1.65  # ~95% service level
+SAFETY_STOCK_Z = 1.65
 
 
 class PredictRequest(BaseModel):
@@ -38,14 +38,14 @@ class PredictRequest(BaseModel):
     target_date: Optional[str] = None
 
 
-def _row_for(sku_id: str, region: str) -> dict:
+def _row_for(sku_id, region):
     match = CURRENT[(CURRENT.sku_id == sku_id) & (CURRENT.region == region)]
     if match.empty:
         raise HTTPException(404, f"No current-state record for {sku_id} / {region}")
     return match.iloc[0].to_dict()
 
 
-def _forecast_one(sku_id: str, region: str, target_date: str = None) -> dict:
+def _forecast_one(sku_id, region, target_date=None):
     row = _row_for(sku_id, region)
     tdate = pd.Timestamp(target_date) if target_date else pd.Timestamp(datetime.utcnow().date())
     pred = predict_demand(HISTORY, sku_id, region, tdate, row)
@@ -53,7 +53,7 @@ def _forecast_one(sku_id: str, region: str, target_date: str = None) -> dict:
             "forecast_demand": round(pred, 1), "current_row": row}
 
 
-def _replenish_one(sku_id: str, region: str) -> dict:
+def _replenish_one(sku_id, region):
     row = _row_for(sku_id, region)
     fc = _forecast_one(sku_id, region)
     sub = HISTORY[(HISTORY.sku_id == sku_id) & (HISTORY.region == region)].sort_values("date").tail(28)
@@ -81,7 +81,6 @@ def _replenish_one(sku_id: str, region: str) -> dict:
     }
 
 
-# ---------- reference / metadata ----------
 @app.get("/health")
 def health():
     return {"status": "ok", "skus": CURRENT.sku_id.nunique(), "regions": CURRENT.region.nunique()}
@@ -99,7 +98,6 @@ def list_regions():
             for r in sorted(CURRENT.region.unique())]
 
 
-# ---------- forecast ----------
 @app.post("/predict")
 def predict(req: PredictRequest):
     return _forecast_one(req.sku_id, req.region, req.target_date)
@@ -116,7 +114,6 @@ def forecast_all(target_date: Optional[str] = None):
     return results
 
 
-# ---------- allocation ----------
 @app.get("/allocate")
 def allocate(sku_id: str):
     rows = CURRENT[CURRENT.sku_id == sku_id]
@@ -143,7 +140,7 @@ def allocate(sku_id: str):
         demand_pull = p["forecast_demand"] / max(sum(x["forecast_demand"] for x in plan), 1)
         score = expiry_urgency * 0.4 + demand_pull * 0.6
         if p["is_stockout"]:
-            score += 1.0  # zero-stock regions always jump the queue
+            score += 1.0
         p["allocation_priority_score"] = round(score, 4)
 
     plan.sort(key=lambda x: x["allocation_priority_score"], reverse=True)
@@ -161,7 +158,6 @@ def allocate_all():
     return [allocate(sku) for sku in sorted(CURRENT.sku_id.unique())]
 
 
-# ---------- replenishment ----------
 @app.get("/replenish")
 def replenish(sku_id: str, region: str):
     return _replenish_one(sku_id, region)
@@ -169,14 +165,12 @@ def replenish(sku_id: str, region: str):
 
 @app.get("/replenish/all")
 def replenish_all():
-    """Bulk reorder recommendations for every SKU x region — avoids ~90 separate calls."""
     out = []
     for _, r in CURRENT.iterrows():
         out.append(_replenish_one(r["sku_id"], r["region"]))
     return out
 
 
-# ---------- alerts ----------
 @app.get("/alerts")
 def alerts():
     out = []
@@ -194,7 +188,6 @@ def alerts():
     return out
 
 
-# ---------- inventory / expiry ----------
 @app.get("/inventory/batches")
 def batches(sku_id: Optional[str] = None, region: Optional[str] = None):
     df = BATCHES.copy()
@@ -214,7 +207,6 @@ def batches(sku_id: Optional[str] = None, region: Optional[str] = None):
 
 @app.get("/inventory/expiry-exposure")
 def expiry_exposure(within_days: int = 30):
-    """Total $ value of stock expiring within N days — for the Expiry page KPI tiles."""
     df = BATCHES[BATCHES.expiry_days <= within_days].copy()
     df["unit_price"] = df.sku_id.map(lambda s: SKU_META.get(s, {}).get("unit_price", 0))
     df["value"] = df.quantity * df.unit_price
@@ -231,10 +223,8 @@ def expiry_exposure(within_days: int = 30):
     }
 
 
-# ---------- reports ----------
 @app.get("/reports/demand-trend")
 def demand_trend():
-    """Monthly aggregated demand — powers a trend chart without needing new data."""
     df = HISTORY.copy()
     df["month"] = df["date"].dt.to_period("M").astype(str)
     trend = df.groupby("month")["demand"].sum().reset_index()
@@ -251,12 +241,6 @@ def category_breakdown():
 
 @app.get("/reports/accuracy")
 def accuracy(sample_days: int = 7):
-    """
-    Backtested forecast accuracy: for the last `sample_days` days in history,
-    predict demand using only data available before that day, compare to actual.
-    Returns overall MAPE plus per-SKU breakdown. Computed on demand (not cached),
-    keep sample_days small (<=14) to stay fast.
-    """
     all_dates = sorted(HISTORY.date.unique())[-sample_days:]
     errors = []
     for _, cur in CURRENT.iterrows():
@@ -285,3 +269,51 @@ def accuracy(sample_days: int = 7):
               .reset_index().rename(columns={"ape": "mape"}))
     by_sku["sku_name"] = by_sku.sku_id.map(lambda s: SKU_META.get(s, {}).get("name", s))
     return {"mape": overall_mape, "sample_size": len(err_df), "by_sku": by_sku.to_dict(orient="records")}
+
+
+@app.get("/warehouses/summary")
+def warehouses_summary():
+    out = []
+    for region in sorted(CURRENT.region.unique()):
+        rows = CURRENT[CURRENT.region == region]
+        total_stock = float(rows["current_stock"].sum())
+        total_capacity = float(rows["warehouse_capacity"].sum())
+        stockout_count = int((rows["current_stock"] <= 0).sum())
+        critical_stockouts = int(((rows["current_stock"] <= 0) & (rows["sku_criticality"] == "Critical")).sum())
+
+        region_batches = BATCHES[BATCHES.region == region].copy()
+        region_batches["unit_price"] = region_batches.sku_id.map(lambda s: SKU_META.get(s, {}).get("unit_price", 0))
+        region_batches["value"] = region_batches.quantity * region_batches.unit_price
+        expiring_30d_value = float(region_batches[region_batches.expiry_days <= 30]["value"].sum())
+
+        meta = REGION_META.get(region, {})
+        out.append({
+            "region_id": region,
+            "name": meta.get("name", region),
+            "city": meta.get("city", region),
+            "region_type": rows.iloc[0]["region_type"],
+            "total_stock": round(total_stock, 1),
+            "total_capacity": round(total_capacity, 1),
+            "utilization_pct": round(total_stock / max(total_capacity, 1) * 100, 1),
+            "stockout_sku_count": stockout_count,
+            "critical_stockout_sku_count": critical_stockouts,
+            "expiring_30d_value": round(expiring_30d_value, 1),
+        })
+    return out
+
+
+@app.get("/warehouses/{region_id}")
+def warehouse_detail(region_id: str):
+    rows = CURRENT[CURRENT.region == region_id]
+    if rows.empty:
+        raise HTTPException(404, f"Unknown region {region_id}")
+    skus = []
+    for _, r in rows.iterrows():
+        skus.append({
+            "sku_id": r["sku_id"], "sku_name": SKU_META.get(r["sku_id"], {}).get("name", r["sku_id"]),
+            "current_stock": r["current_stock"], "warehouse_capacity": r["warehouse_capacity"],
+            "nearest_batch_expiry_days": r["nearest_batch_expiry_days"],
+            "criticality": r["sku_criticality"],
+        })
+    meta = REGION_META.get(region_id, {})
+    return {"region_id": region_id, **meta, "skus": skus}

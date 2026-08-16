@@ -22,7 +22,7 @@ export function WarehouseOverview() {
           <WarehouseIcon className="h-4 w-4 text-primary" />
           Distribution Center Overview
         </CardTitle>
-        <CardDescription>Live capacity, stock health, and expiry exposure by DC</CardDescription>
+        <CardDescription>Live capacity, stockouts, and expiry exposure by DC</CardDescription>
       </CardHeader>
       {loading && <LoadingState label="Loading warehouse overview..." />}
       {!loading && (error || !warehouses) && <ErrorState />}
@@ -50,22 +50,12 @@ export function WarehouseOverview() {
                   </Badge>
                 </div>
 
-                <div className="mt-4 space-y-3">
-                  <div>
-                    <div className="mb-1 flex justify-between text-xs">
-                      <span className="text-muted-foreground">Capacity</span>
-                      <span className="font-mono-num font-semibold text-foreground">{w.capacityPct}%</span>
-                    </div>
-                    <Progress value={w.capacityPct} barClassName={barColor} />
+                <div className="mt-4">
+                  <div className="mb-1 flex justify-between text-xs">
+                    <span className="text-muted-foreground">Capacity</span>
+                    <span className="font-mono-num font-semibold text-foreground">{w.capacityPct}%</span>
                   </div>
-
-                  <div>
-                    <div className="mb-1 flex justify-between text-xs">
-                      <span className="text-muted-foreground">Stock Health</span>
-                      <span className="font-mono-num font-semibold text-foreground">{w.stockHealthPct}%</span>
-                    </div>
-                    <Progress value={w.stockHealthPct} barClassName="bg-teal" />
-                  </div>
+                  <Progress value={w.capacityPct} barClassName={barColor} />
                 </div>
 
                 <div className="mt-4 grid grid-cols-2 gap-2 border-t border-border pt-3 text-xs">
@@ -74,11 +64,18 @@ export function WarehouseOverview() {
                     <p className="font-mono-num font-semibold text-foreground">{formatNumber(w.stockUnits)}</p>
                   </div>
                   <div>
-                    <p className="text-muted-foreground">SKUs</p>
-                    <p className="font-mono-num font-semibold text-foreground">{w.skuCount}</p>
+                    <p className="text-muted-foreground">Stockouts</p>
+                    <p
+                      className={cn(
+                        "font-mono-num font-semibold",
+                        w.criticalStockoutCount > 0 ? "text-destructive" : "text-foreground"
+                      )}
+                    >
+                      {w.stockoutCount} SKUs ({w.criticalStockoutCount} critical)
+                    </p>
                   </div>
                   <div className="col-span-2">
-                    <p className="text-muted-foreground">Expiry Exposure</p>
+                    <p className="text-muted-foreground">Expiry Exposure (30d)</p>
                     <p className="font-mono-num font-semibold text-warning">
                       {formatCurrency(w.expiryExposureValue)}
                     </p>

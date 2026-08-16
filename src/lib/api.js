@@ -39,4 +39,6 @@ export const api = {
   demandTrend: () => apiGet("/reports/demand-trend"),
   categoryBreakdown: () => apiGet("/reports/category-breakdown"),
   accuracy: (sample_days) => apiGet("/reports/accuracy", sample_days ? { sample_days } : undefined),
+  warehousesSummary: () => apiGet("/warehouses/summary"),
+  warehouseDetail: (region_id) => apiGet(`/warehouses/${region_id}`),
 };

@@ -17,7 +17,6 @@ with open(os.path.join(BASE_DIR, "demand_forecast_model.pkl"), "rb") as f:
 
 
 def _lag_and_roll(series: pd.Series):
-    """series must be sorted ascending by date, most recent last."""
     s = series.reset_index(drop=True)
     n = len(s)
 
@@ -40,15 +39,7 @@ def _lag_and_roll(series: pd.Series):
     }
 
 
-def build_feature_vector(history_df: pd.DataFrame, sku_id: str, region: str,
-                          target_date: pd.Timestamp, current_row: dict) -> pd.DataFrame:
-    """
-    history_df: full history (date, sku_id, region, demand, ...)
-    current_row: dict with current_stock, warehouse_capacity, lead_time_days,
-                 nearest_batch_expiry_days, stockout_flag, sensed_demand_signal,
-                 promotion_flag, sku_criticality, region_type
-    Returns a 1-row DataFrame with columns == FEATURE_COLUMNS, ready for model.predict.
-    """
+def build_feature_vector(history_df, sku_id, region, target_date, current_row):
     sub = history_df[(history_df.sku_id == sku_id) & (history_df.region == region)].sort_values("date")
     lag_roll = _lag_and_roll(sub["demand"])
 
@@ -68,7 +59,6 @@ def build_feature_vector(history_df: pd.DataFrame, sku_id: str, region: str,
         **lag_roll,
     }
 
-    # one-hot: sku_id (baseline SKU_001)
     for col in FEATURE_COLUMNS:
         if col.startswith("sku_id_"):
             feat[col] = 1 if col == f"sku_id_{sku_id}" else 0
@@ -82,10 +72,10 @@ def build_feature_vector(history_df: pd.DataFrame, sku_id: str, region: str,
             feat[col] = 1 if col == f"day_of_week_{weekday}" else 0
 
     vec = pd.DataFrame([{c: feat.get(c, 0) for c in FEATURE_COLUMNS}])
-    return vec[FEATURE_COLUMNS]  # enforce exact order
+    return vec[FEATURE_COLUMNS]
 
 
-def predict_demand(history_df, sku_id, region, target_date, current_row) -> float:
+def predict_demand(history_df, sku_id, region, target_date, current_row):
     X = build_feature_vector(history_df, sku_id, region, target_date, current_row)
     pred = MODEL.predict(X)[0]
     return max(0.0, float(pred))
