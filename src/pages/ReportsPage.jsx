@@ -7,7 +7,7 @@ import { formatCompact } from "@/lib/utils";
 
 export function ReportsPage() {
   const { data, loading, error } = useApi((signal) =>
-    Promise.all([api.demandTrend(signal), api.categoryBreakdown(signal), api.accuracy(7, signal)])
+    Promise.all([api.demandTrend(signal), api.categoryBreakdown(signal), api.accuracy(3, signal)])
   );
   const [demandTrend, categoryBreakdown, accuracy] = data || [null, null, null];
 
@@ -76,7 +76,7 @@ export function ReportsPage() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Target className="h-4 w-4 text-primary" />
-            Forecast Accuracy — 7-Day Backtest
+            Forecast Accuracy — 3-Day Backtest
           </CardTitle>
           <CardDescription>
             Overall MAPE: {accuracy.mape != null ? `${accuracy.mape}%` : "—"} across {accuracy.sample_size} samples

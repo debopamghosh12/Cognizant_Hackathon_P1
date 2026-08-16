@@ -17,24 +17,30 @@ const staticStats = [
 ];
 
 export function ForecastPage({ filters, setFilters }) {
-  const { data, loading, error } = useApi((signal) =>
-    Promise.all([api.accuracy(7, signal), api.categoryBreakdown(signal)])
+  const { data, loading, error } = useApi(
+    (signal) => Promise.all([api.accuracy(3, signal), api.categoryBreakdown(signal)]),
+    [],
+    15000
   );
   const [accuracy, categoryBreakdown] = data || [null, null];
   const totalDemand = categoryBreakdown ? categoryBreakdown.reduce((s, c) => s + c.demand, 0) : 0;
+  const fallbackMessage =
+    error?.message === "Request timed out"
+      ? "Accuracy stats unavailable — try refreshing."
+      : undefined;
 
   return (
     <div className="space-y-5">
       <FiltersBar filters={filters} setFilters={setFilters} />
 
       {loading && <LoadingState label="Loading forecast stats..." />}
-      {!loading && (error || !accuracy) && <ErrorState />}
+      {!loading && (error || !accuracy) && <ErrorState message={fallbackMessage} />}
       {!loading && !error && accuracy && (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <Card className="p-5">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-xs font-medium text-muted-foreground">Forecast Error (MAPE, 7-day backtest)</p>
+                <p className="text-xs font-medium text-muted-foreground">Forecast Error (MAPE, 3-day backtest)</p>
                 <p className="mt-2 text-2xl font-bold text-foreground font-mono-num">
                   {accuracy.mape != null ? `${accuracy.mape}%` : "—"}
                 </p>
@@ -85,7 +91,7 @@ export function ForecastPage({ filters, setFilters }) {
           <CardDescription>Share of total sensed demand by therapeutic category</CardDescription>
         </CardHeader>
         {loading && <LoadingState label="Loading category breakdown..." />}
-        {!loading && (error || !categoryBreakdown) && <ErrorState />}
+        {!loading && (error || !categoryBreakdown) && <ErrorState message={fallbackMessage} />}
         {!loading && !error && categoryBreakdown && (
           <div className="grid grid-cols-1 gap-3 px-5 pb-5 sm:grid-cols-2 lg:grid-cols-3">
             {categoryBreakdown.map((c) => (

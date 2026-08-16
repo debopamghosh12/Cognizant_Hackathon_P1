@@ -56,7 +56,7 @@ const cardsConfig = [
   },
 ];
 
-function deriveKpis([forecastAll, replenishAll, expiryExposure, accuracy]) {
+function deriveKpis([forecastAll, replenishAll, expiryExposure]) {
   const totalInventory = forecastAll.reduce((s, r) => s + r.current_row.current_stock, 0);
   const totalCapacity = forecastAll.reduce((s, r) => s + r.current_row.warehouse_capacity, 0);
   const criticalShortages = new Set(
@@ -65,7 +65,6 @@ function deriveKpis([forecastAll, replenishAll, expiryExposure, accuracy]) {
 
   return {
     totalInventory: { value: Math.round(totalInventory) },
-    forecastAccuracy: { value: accuracy.mape != null ? Math.round((100 - accuracy.mape) * 10) / 10 : "—" },
     criticalShortages: { value: criticalShortages },
     expiringStockValue: { value: Math.round(expiryExposure.total_value_at_risk) },
     warehouseFillRate: {
@@ -77,14 +76,21 @@ function deriveKpis([forecastAll, replenishAll, expiryExposure, accuracy]) {
 
 export function KpiCards() {
   const { data, loading, error } = useApi((signal) =>
-    Promise.all([
-      api.forecastAll(undefined, signal),
-      api.replenishAll(signal),
-      api.expiryExposure(30, signal),
-      api.accuracy(7, signal),
-    ])
+    Promise.all([api.forecastAll(undefined, signal), api.replenishAll(signal), api.expiryExposure(30, signal)])
   );
+  // Fetched separately, with its own timeout: /reports/accuracy is by far the
+  // heaviest endpoint (a multi-day backtest), and can be slow on a
+  // cold-started backend. Isolating it means a slow/timed-out accuracy call
+  // only blanks the one "Forecast Accuracy" tile instead of hiding the other
+  // five KPIs, which all come back quickly regardless.
+  const accuracyState = useApi((signal) => api.accuracy(3, signal), [], 15000);
+
   const kpis = data ? deriveKpis(data) : null;
+  const accuracyValue = accuracyState.data?.mape != null
+    ? Math.round((100 - accuracyState.data.mape) * 10) / 10
+    : accuracyState.error
+      ? "—"
+      : null;
 
   if (loading) return <LoadingState label="Loading KPIs..." />;
   if (error || !kpis) return <ErrorState />;
@@ -92,7 +98,26 @@ export function KpiCards() {
   return (
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
       {cardsConfig.map((cfg) => {
-        const data = kpis[cfg.key];
+        if (cfg.key === "forecastAccuracy") {
+          const isLoading = accuracyState.loading;
+          return (
+            <Card key={cfg.key} className="animate-fade-in p-5">
+              <div className="flex items-start justify-between">
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground">{cfg.label}</p>
+                  <p className="mt-2 text-2xl font-bold tracking-tight text-foreground font-mono-num">
+                    {isLoading ? "…" : accuracyValue != null ? cfg.format(accuracyValue) : "—"}
+                  </p>
+                </div>
+                <div className={cn("flex h-10 w-10 items-center justify-center rounded-lg", cfg.bg)}>
+                  <cfg.icon className={cn("h-5 w-5", cfg.color)} strokeWidth={2} />
+                </div>
+              </div>
+            </Card>
+          );
+        }
+
+        const cardData = kpis[cfg.key];
         const Icon = cfg.icon;
 
         return (
@@ -101,7 +126,7 @@ export function KpiCards() {
               <div>
                 <p className="text-xs font-medium text-muted-foreground">{cfg.label}</p>
                 <p className="mt-2 text-2xl font-bold tracking-tight text-foreground font-mono-num">
-                  {cfg.format(data.value)}
+                  {cfg.format(cardData.value)}
                 </p>
               </div>
               <div className={cn("flex h-10 w-10 items-center justify-center rounded-lg", cfg.bg)}>
