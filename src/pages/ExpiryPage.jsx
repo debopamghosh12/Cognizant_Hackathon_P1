@@ -9,8 +9,8 @@ import { formatCurrency, formatNumber } from "@/lib/utils";
 import { AlertTriangle, DollarSign, Package } from "lucide-react";
 
 export function ExpiryPage({ filters, setFilters }) {
-  const { data, loading, error } = useApi(() =>
-    Promise.all([api.expiryExposure(15), api.expiryExposure(90)])
+  const { data, loading, error } = useApi((signal) =>
+    Promise.all([api.expiryExposure(15, signal), api.expiryExposure(90, signal)])
   );
   const [critical, overall] = data || [null, null];
 

@@ -6,8 +6,8 @@ import { api } from "@/lib/api";
 import { formatCompact } from "@/lib/utils";
 
 export function ReportsPage() {
-  const { data, loading, error } = useApi(() =>
-    Promise.all([api.demandTrend(), api.categoryBreakdown(), api.accuracy(7)])
+  const { data, loading, error } = useApi((signal) =>
+    Promise.all([api.demandTrend(signal), api.categoryBreakdown(signal), api.accuracy(7, signal)])
   );
   const [demandTrend, categoryBreakdown, accuracy] = data || [null, null, null];
 

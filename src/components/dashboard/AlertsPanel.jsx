@@ -23,7 +23,7 @@ function toAlertView(a) {
 }
 
 export function AlertsPanel({ limit }) {
-  const { data, loading, error } = useApi(() => api.alerts());
+  const { data, loading, error } = useApi((signal) => api.alerts(signal));
   const items = (data || []).map(toAlertView).slice(0, limit || undefined);
 
   return (

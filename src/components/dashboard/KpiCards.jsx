@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
 import { Boxes, Target, AlertOctagon, Timer, Warehouse, ClipboardList } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { LoadingState, ErrorState } from "@/components/ui/state";
+import { useApi } from "@/lib/useApi";
 import { cn, formatCompact, formatCurrency } from "@/lib/utils";
 import { api } from "@/lib/api";
 
@@ -56,44 +56,35 @@ const cardsConfig = [
   },
 ];
 
+function deriveKpis([forecastAll, replenishAll, expiryExposure, accuracy]) {
+  const totalInventory = forecastAll.reduce((s, r) => s + r.current_row.current_stock, 0);
+  const totalCapacity = forecastAll.reduce((s, r) => s + r.current_row.warehouse_capacity, 0);
+  const criticalShortages = new Set(
+    replenishAll.filter((r) => r.needs_reorder && r.current_stock <= 0).map((r) => r.sku_id)
+  ).size;
+
+  return {
+    totalInventory: { value: Math.round(totalInventory) },
+    forecastAccuracy: { value: accuracy.mape != null ? Math.round((100 - accuracy.mape) * 10) / 10 : "—" },
+    criticalShortages: { value: criticalShortages },
+    expiringStockValue: { value: Math.round(expiryExposure.total_value_at_risk) },
+    warehouseFillRate: {
+      value: totalCapacity > 0 ? Math.round((totalInventory / totalCapacity) * 1000) / 10 : 0,
+    },
+    replenishmentPending: { value: replenishAll.filter((r) => r.needs_reorder).length },
+  };
+}
+
 export function KpiCards() {
-  const [kpis, setKpis] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    Promise.all([api.forecastAll(), api.replenishAll(), api.expiryExposure(30), api.accuracy(7)])
-      .then(([forecastAll, replenishAll, expiryExposure, accuracy]) => {
-        if (cancelled) return;
-
-        const totalInventory = forecastAll.reduce((s, r) => s + r.current_row.current_stock, 0);
-        const totalCapacity = forecastAll.reduce((s, r) => s + r.current_row.warehouse_capacity, 0);
-        const criticalShortages = new Set(
-          replenishAll.filter((r) => r.needs_reorder && r.current_stock <= 0).map((r) => r.sku_id)
-        ).size;
-
-        setKpis({
-          totalInventory: { value: Math.round(totalInventory) },
-          forecastAccuracy: { value: accuracy.mape != null ? Math.round((100 - accuracy.mape) * 10) / 10 : "—" },
-          criticalShortages: { value: criticalShortages },
-          expiringStockValue: { value: Math.round(expiryExposure.total_value_at_risk) },
-          warehouseFillRate: {
-            value: totalCapacity > 0 ? Math.round((totalInventory / totalCapacity) * 1000) / 10 : 0,
-          },
-          replenishmentPending: { value: replenishAll.filter((r) => r.needs_reorder).length },
-        });
-      })
-      .catch((e) => {
-        if (!cancelled) setError(e);
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  const { data, loading, error } = useApi((signal) =>
+    Promise.all([
+      api.forecastAll(undefined, signal),
+      api.replenishAll(signal),
+      api.expiryExposure(30, signal),
+      api.accuracy(7, signal),
+    ])
+  );
+  const kpis = data ? deriveKpis(data) : null;
 
   if (loading) return <LoadingState label="Loading KPIs..." />;
   if (error || !kpis) return <ErrorState />;

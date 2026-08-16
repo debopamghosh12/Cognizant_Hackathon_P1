@@ -39,7 +39,7 @@ export function Topbar({ activePage, setMobileOpen }) {
   }, []);
 
   const meta = pageTitles[activePage] || pageTitles.dashboard;
-  const { data: alerts } = useApi(() => api.alerts());
+  const { data: alerts } = useApi((signal) => api.alerts(signal));
   const recentAlerts = (alerts || []).slice(0, 5).map((a) => ({
     id: `${a.sku_id}-${a.region}`,
     title: `${a.sku_name} — predicted stockout risk`,

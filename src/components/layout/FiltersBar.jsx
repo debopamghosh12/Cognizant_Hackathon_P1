@@ -7,8 +7,8 @@ import { api } from "@/lib/api";
 const dateRanges = ["Last 7 days", "Last 14 days", "Last 30 days", "Last Quarter", "Year to Date"];
 
 export function FiltersBar({ filters, setFilters }) {
-  const { data: regions } = useApi(() => api.regions());
-  const { data: skus } = useApi(() => api.skus());
+  const { data: regions } = useApi((signal) => api.regions(signal));
+  const { data: skus } = useApi((signal) => api.skus(signal));
   const categories = skus ? [...new Set(skus.map((s) => s.category))].sort() : [];
 
   function update(key, value) {

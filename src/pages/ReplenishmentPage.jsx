@@ -15,7 +15,7 @@ function priorityOf(r) {
 }
 
 export function ReplenishmentPage({ filters, setFilters }) {
-  const { data, loading, error } = useApi(() => api.replenishAll());
+  const { data, loading, error } = useApi((signal) => api.replenishAll(signal));
   const needsReorder = (data || []).filter((r) => r.needs_reorder);
 
   const byPriority = {

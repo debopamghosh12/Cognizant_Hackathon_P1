@@ -1,57 +1,42 @@
-import { useEffect, useState } from "react";
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from "recharts";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { LoadingState, ErrorState } from "@/components/ui/state";
+import { useApi } from "@/lib/useApi";
 import { api } from "@/lib/api";
 
 const HORIZON_DAYS = 10;
 
+async function fetchForecast(signal) {
+  const [skus, regions] = await Promise.all([api.skus(signal), api.regions(signal)]);
+  if (skus.length === 0 || regions.length === 0) return null;
+
+  const sku = skus[0];
+  const region = regions[0];
+
+  const today = new Date();
+  const dates = Array.from({ length: HORIZON_DAYS }, (_, i) => {
+    const d = new Date(today);
+    d.setDate(d.getDate() + i);
+    return d;
+  });
+
+  const results = await Promise.all(
+    dates.map((d) => api.predict(sku.sku_id, region.region_id, d.toISOString().slice(0, 10), signal))
+  );
+
+  return {
+    label: `${sku.name} — ${region.name}`,
+    chartData: results.map((r) => ({
+      day: new Date(r.date).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+      forecast: r.forecast_demand,
+    })),
+  };
+}
+
 export function DemandForecastChart() {
-  const [chartData, setChartData] = useState(null);
-  const [label, setLabel] = useState("");
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    Promise.all([api.skus(), api.regions()])
-      .then(([skus, regions]) => {
-        if (cancelled || skus.length === 0 || regions.length === 0) return;
-        const sku = skus[0];
-        const region = regions[0];
-        setLabel(`${sku.name} — ${region.name}`);
-
-        const today = new Date();
-        const dates = Array.from({ length: HORIZON_DAYS }, (_, i) => {
-          const d = new Date(today);
-          d.setDate(d.getDate() + i);
-          return d;
-        });
-
-        return Promise.all(
-          dates.map((d) => api.predict(sku.sku_id, region.region_id, d.toISOString().slice(0, 10)))
-        ).then((results) => {
-          if (cancelled) return;
-          setChartData(
-            results.map((r) => ({
-              day: new Date(r.date).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
-              forecast: r.forecast_demand,
-            }))
-          );
-        });
-      })
-      .catch((e) => {
-        if (!cancelled) setError(e);
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  const { data, loading, error } = useApi((signal) => fetchForecast(signal));
+  const label = data?.label ?? "";
+  const chartData = data?.chartData ?? null;
 
   return (
     <Card>

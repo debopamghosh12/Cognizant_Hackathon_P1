@@ -26,7 +26,7 @@ const navItems = [
 ];
 
 export function Sidebar({ activePage, setActivePage, mobileOpen, setMobileOpen }) {
-  const { data: alerts } = useApi(() => api.alerts());
+  const { data: alerts } = useApi((signal) => api.alerts(signal));
   const criticalAlertCount = (alerts || []).filter((a) => a.severity === "HIGH").length;
 
   return (

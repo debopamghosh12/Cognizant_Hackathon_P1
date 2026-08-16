@@ -22,7 +22,7 @@ function bucketBatches(batches) {
 }
 
 export function ExpiryRiskDonutChart() {
-  const { data: batches, loading, error } = useApi(() => api.batches());
+  const { data: batches, loading, error } = useApi((signal) => api.batches(undefined, undefined, signal));
   const bands = batches ? bucketBatches(batches) : null;
   const total = bands ? bands.reduce((s, b) => s + b.value, 0) : 0;
 

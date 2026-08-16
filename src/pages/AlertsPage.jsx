@@ -12,7 +12,7 @@ const severities = ["all", "high", "medium"];
 
 export function AlertsPage({ filters, setFilters }) {
   const [active, setActive] = useState("all");
-  const { data, loading, error } = useApi(() => api.alerts());
+  const { data, loading, error } = useApi((signal) => api.alerts(signal));
   const alerts = (data || []).map((a) => ({
     id: `${a.sku_id}-${a.region}`,
     severity: a.severity.toLowerCase(),

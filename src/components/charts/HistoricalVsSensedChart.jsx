@@ -6,7 +6,7 @@ import { api } from "@/lib/api";
 import { formatCompact } from "@/lib/utils";
 
 export function HistoricalVsSensedChart() {
-  const { data, loading, error } = useApi(() => api.demandTrend());
+  const { data, loading, error } = useApi((signal) => api.demandTrend(signal));
 
   return (
     <Card>

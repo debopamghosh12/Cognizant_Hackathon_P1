@@ -4,7 +4,7 @@ import { api } from "@/lib/api";
 // Thin wrapper around GET /warehouses/summary, normalized for the DC overview
 // cards and warehouse master table.
 export function useRegionSummary() {
-  const { data, loading, error } = useApi(() => api.warehousesSummary());
+  const { data, loading, error } = useApi((signal) => api.warehousesSummary(signal));
 
   const warehouses = data?.map((w) => {
     const status =

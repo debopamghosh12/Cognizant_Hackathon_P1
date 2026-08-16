@@ -25,7 +25,7 @@ function etaOf(leadTimeDays) {
 
 export function ReplenishmentTable({ limit, showHeader = true }) {
   const [sortAsc, setSortAsc] = useState(true);
-  const { data, loading, error } = useApi(() => api.replenishAll());
+  const { data, loading, error } = useApi((signal) => api.replenishAll(signal));
 
   const rows = (data || [])
     .filter((r) => r.needs_reorder)

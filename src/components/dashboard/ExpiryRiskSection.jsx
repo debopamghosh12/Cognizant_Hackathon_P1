@@ -14,7 +14,9 @@ function riskTier(days) {
 }
 
 export function ExpiryRiskSection({ limit }) {
-  const { data, loading, error } = useApi(() => Promise.all([api.batches(), api.skus()]));
+  const { data, loading, error } = useApi((signal) =>
+    Promise.all([api.batches(undefined, undefined, signal), api.skus(signal)])
+  );
   const [batches, skus] = data || [null, null];
   const unitBySku = skus ? Object.fromEntries(skus.map((s) => [s.sku_id, s.unit])) : {};
   const items = batches ? batches.slice(0, limit || undefined) : null;

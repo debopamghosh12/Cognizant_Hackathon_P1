@@ -23,8 +23,8 @@ function statusOf(currentStock, safetyStock) {
 
 export function InventoryPage({ filters, setFilters }) {
   const [query, setQuery] = useState("");
-  const { data, loading, error } = useApi(() =>
-    Promise.all([api.forecastAll(), api.replenishAll(), api.skus()])
+  const { data, loading, error } = useApi((signal) =>
+    Promise.all([api.forecastAll(undefined, signal), api.replenishAll(signal), api.skus(signal)])
   );
   const [forecastAll, replenishAll, skus] = data || [null, null, null];
 

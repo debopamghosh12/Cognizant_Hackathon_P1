@@ -17,8 +17,8 @@ const staticStats = [
 ];
 
 export function ForecastPage({ filters, setFilters }) {
-  const { data, loading, error } = useApi(() =>
-    Promise.all([api.accuracy(7), api.categoryBreakdown()])
+  const { data, loading, error } = useApi((signal) =>
+    Promise.all([api.accuracy(7, signal), api.categoryBreakdown(signal)])
   );
   const [accuracy, categoryBreakdown] = data || [null, null];
   const totalDemand = categoryBreakdown ? categoryBreakdown.reduce((s, c) => s + c.demand, 0) : 0;

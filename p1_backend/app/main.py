@@ -31,6 +31,12 @@ app.add_middleware(
 
 SAFETY_STOCK_Z = 1.65
 
+# Simple in-memory cache for the expensive bulk endpoints. The underlying
+# CSVs are loaded once at startup and never change during the process's
+# lifetime, so these results are safe to compute once and reuse. Cleared
+# via POST /admin/clear-cache (e.g. after regenerating data).
+_CACHE = {}
+
 
 class PredictRequest(BaseModel):
     sku_id: str
@@ -105,12 +111,18 @@ def predict(req: PredictRequest):
 
 @app.get("/forecast/all")
 def forecast_all(target_date: Optional[str] = None):
+    cache_key = f"forecast_all:{target_date}"
+    if cache_key in _CACHE:
+        return _CACHE[cache_key]
+
     results = []
     for _, r in CURRENT.iterrows():
         fc = _forecast_one(r["sku_id"], r["region"], target_date)
         fc["sku_name"] = SKU_META.get(r["sku_id"], {}).get("name", r["sku_id"])
         fc["region_name"] = REGION_META.get(r["region"], {}).get("name", r["region"])
         results.append(fc)
+
+    _CACHE[cache_key] = results
     return results
 
 
@@ -155,7 +167,12 @@ def allocate(sku_id: str):
 
 @app.get("/allocate/all")
 def allocate_all():
-    return [allocate(sku) for sku in sorted(CURRENT.sku_id.unique())]
+    if "allocate_all" in _CACHE:
+        return _CACHE["allocate_all"]
+
+    result = [allocate(sku) for sku in sorted(CURRENT.sku_id.unique())]
+    _CACHE["allocate_all"] = result
+    return result
 
 
 @app.get("/replenish")
@@ -165,14 +182,22 @@ def replenish(sku_id: str, region: str):
 
 @app.get("/replenish/all")
 def replenish_all():
+    if "replenish_all" in _CACHE:
+        return _CACHE["replenish_all"]
+
     out = []
     for _, r in CURRENT.iterrows():
         out.append(_replenish_one(r["sku_id"], r["region"]))
+
+    _CACHE["replenish_all"] = out
     return out
 
 
 @app.get("/alerts")
 def alerts():
+    if "alerts" in _CACHE:
+        return _CACHE["alerts"]
+
     out = []
     for _, r in CURRENT.iterrows():
         if r["sku_criticality"] != "Critical":
@@ -185,6 +210,8 @@ def alerts():
             out.append({**rep, "days_of_cover": round(days_cover, 1),
                         "severity": severity, "recommended_review_cadence": cadence})
     out.sort(key=lambda x: x["days_of_cover"])
+
+    _CACHE["alerts"] = out
     return out
 
 
@@ -241,6 +268,10 @@ def category_breakdown():
 
 @app.get("/reports/accuracy")
 def accuracy(sample_days: int = 7):
+    cache_key = f"accuracy:{sample_days}"
+    if cache_key in _CACHE:
+        return _CACHE[cache_key]
+
     all_dates = sorted(HISTORY.date.unique())[-sample_days:]
     errors = []
     for _, cur in CURRENT.iterrows():
@@ -261,14 +292,18 @@ def accuracy(sample_days: int = 7):
             errors.append({"sku_id": sku_id, "ape": ape})
 
     if not errors:
-        return {"mape": None, "sample_size": 0, "by_sku": []}
+        result = {"mape": None, "sample_size": 0, "by_sku": []}
+        _CACHE[cache_key] = result
+        return result
 
     err_df = pd.DataFrame(errors)
     overall_mape = round(float(err_df["ape"].mean()), 2)
     by_sku = (err_df.groupby("sku_id")["ape"].mean().round(2)
               .reset_index().rename(columns={"ape": "mape"}))
     by_sku["sku_name"] = by_sku.sku_id.map(lambda s: SKU_META.get(s, {}).get("name", s))
-    return {"mape": overall_mape, "sample_size": len(err_df), "by_sku": by_sku.to_dict(orient="records")}
+    result = {"mape": overall_mape, "sample_size": len(err_df), "by_sku": by_sku.to_dict(orient="records")}
+    _CACHE[cache_key] = result
+    return result
 
 
 @app.get("/warehouses/summary")
@@ -300,6 +335,13 @@ def warehouses_summary():
             "expiring_30d_value": round(expiring_30d_value, 1),
         })
     return out
+
+
+@app.post("/admin/clear-cache")
+def clear_cache():
+    n = len(_CACHE)
+    _CACHE.clear()
+    return {"status": "ok", "entries_cleared": n}
 
 
 @app.get("/warehouses/{region_id}")
