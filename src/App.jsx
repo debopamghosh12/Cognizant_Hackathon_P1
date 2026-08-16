@@ -47,7 +47,7 @@ export default function App() {
         <Topbar activePage={activePage} setMobileOpen={setMobileOpen} />
 
         <main className="flex-1 px-4 py-5 lg:px-6 lg:py-6">
-          <ActivePageComponent filters={filters} setFilters={setFilters} />
+          <ActivePageComponent filters={filters} setFilters={setFilters} setActivePage={setActivePage} />
         </main>
 
         <Footer />

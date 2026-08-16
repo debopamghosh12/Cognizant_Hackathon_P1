@@ -95,4 +95,6 @@ export const api = {
     apiGet("/reports/accuracy", sample_days ? { sample_days } : undefined, signal),
   warehousesSummary: (signal) => apiGet("/warehouses/summary", undefined, signal),
   warehouseDetail: (region_id, signal) => apiGet(`/warehouses/${region_id}`, undefined, signal),
+  createPurchaseOrders: (items, signal) => apiPost("/purchase-orders/create", { items }, signal),
+  purchaseOrders: (signal) => apiGet("/purchase-orders", undefined, signal),
 };

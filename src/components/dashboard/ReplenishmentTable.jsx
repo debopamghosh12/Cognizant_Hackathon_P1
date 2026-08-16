@@ -1,12 +1,13 @@
-import { useState } from "react";
-import { ArrowUpDown, Truck } from "lucide-react";
+import { useEffect, useState } from "react";
+import { ArrowUpDown, Truck, CheckCircle2 } from "lucide-react";
 import { Card, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { PriorityBadge } from "@/components/ui/badge";
+import { Badge, PriorityBadge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { LoadingState, ErrorState } from "@/components/ui/state";
+import { ReplenishmentDetailDialog } from "@/components/dashboard/ReplenishmentDetailDialog";
 import { useApi } from "@/lib/useApi";
 import { api } from "@/lib/api";
-import { formatNumber } from "@/lib/utils";
+import { cn, formatNumber } from "@/lib/utils";
 
 const priorityRank = { Critical: 0, High: 1, Medium: 2 };
 
@@ -23,9 +24,27 @@ function etaOf(leadTimeDays) {
   return d.toLocaleDateString("en-US", { month: "short", day: "2-digit", year: "numeric" });
 }
 
-export function ReplenishmentTable({ limit, showHeader = true }) {
+function keyOf(r) {
+  return `${r.sku_id}|${r.region}`;
+}
+
+// `onCreatePOs`, when provided, overrides the button to do something other
+// than actually create purchase orders (e.g. the Dashboard's truncated
+// 6-row view navigates to the full Replenishment Planner instead, since
+// creating POs from a partial list would be misleading).
+export function ReplenishmentTable({ limit, showHeader = true, onCreatePOs }) {
   const [sortAsc, setSortAsc] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [message, setMessage] = useState(null);
+  const [createdKeys, setCreatedKeys] = useState(new Set());
+  const [detailItem, setDetailItem] = useState(null);
   const { data, loading, error } = useApi((signal) => api.replenishAll(signal));
+
+  useEffect(() => {
+    if (!message) return;
+    const t = setTimeout(() => setMessage(null), 6000);
+    return () => clearTimeout(t);
+  }, [message]);
 
   const rows = (data || [])
     .filter((r) => r.needs_reorder)
@@ -35,6 +54,35 @@ export function ReplenishmentTable({ limit, showHeader = true }) {
     )
     .slice(0, limit || undefined);
 
+  const allOrdered = rows.length > 0 && rows.every((r) => createdKeys.has(keyOf(r)));
+
+  async function handleCreatePOs() {
+    if (onCreatePOs) {
+      onCreatePOs();
+      return;
+    }
+    setSubmitting(true);
+    setMessage(null);
+    try {
+      const items = rows.map((r) => ({ sku_id: r.sku_id, region: r.region }));
+      const res = await api.createPurchaseOrders(items);
+      setCreatedKeys((prev) => {
+        const next = new Set(prev);
+        res.created.forEach((po) => next.add(`${po.sku_id}|${po.region}`));
+        return next;
+      });
+      const skippedNote = res.skipped.length ? `, ${res.skipped.length} skipped` : "";
+      setMessage({
+        type: "success",
+        text: `${res.created.length} purchase order${res.created.length === 1 ? "" : "s"} created${skippedNote}.`,
+      });
+    } catch {
+      setMessage({ type: "error", text: "Failed to create purchase orders. Please try again." });
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
   return (
     <Card>
       {showHeader && (
@@ -43,11 +91,23 @@ export function ReplenishmentTable({ limit, showHeader = true }) {
             <CardTitle>Replenishment Recommendations</CardTitle>
             <CardDescription>System-generated reorder plan based on sensed demand</CardDescription>
           </div>
-          <Button variant="outline" size="sm">
+          <Button variant="outline" size="sm" onClick={handleCreatePOs} disabled={submitting || (!onCreatePOs && allOrdered)}>
             <Truck className="h-3.5 w-3.5" />
-            Create POs
+            {submitting ? "Creating..." : allOrdered && !onCreatePOs ? "POs Created" : "Create POs"}
           </Button>
         </CardHeader>
+      )}
+      {message && (
+        <div
+          className={cn(
+            "mx-5 mt-3 rounded-lg border px-3.5 py-2 text-xs font-medium",
+            message.type === "success"
+              ? "border-success/20 bg-success/10 text-success"
+              : "border-destructive/20 bg-destructive/10 text-destructive"
+          )}
+        >
+          {message.text}
+        </div>
       )}
       {loading && <LoadingState label="Loading replenishment plan..." />}
       {!loading && (error || !data) && <ErrorState />}
@@ -71,7 +131,11 @@ export function ReplenishmentTable({ limit, showHeader = true }) {
             </thead>
             <tbody>
               {rows.map((r) => (
-                <tr key={r.sku_id + r.region} className="border-b border-border last:border-0 hover:bg-muted/40">
+                <tr
+                  key={keyOf(r)}
+                  onClick={() => setDetailItem(r)}
+                  className="cursor-pointer border-b border-border last:border-0 hover:bg-muted/40"
+                >
                   <td className="px-5 py-3">
                     <p className="font-semibold text-foreground">{r.sku_id}</p>
                     <p className="text-xs text-muted-foreground">{r.sku_name}</p>
@@ -83,7 +147,15 @@ export function ReplenishmentTable({ limit, showHeader = true }) {
                     {formatNumber(r.suggested_order_qty)}
                   </td>
                   <td className="px-5 py-3">
-                    <PriorityBadge priority={r.priority} />
+                    <div className="flex flex-col items-start gap-1">
+                      <PriorityBadge priority={r.priority} />
+                      {createdKeys.has(keyOf(r)) && (
+                        <Badge variant="success">
+                          <CheckCircle2 className="h-3 w-3" />
+                          PO Created
+                        </Badge>
+                      )}
+                    </div>
                   </td>
                   <td className="px-5 py-3 text-muted-foreground">{r.eta}</td>
                 </tr>
@@ -99,6 +171,7 @@ export function ReplenishmentTable({ limit, showHeader = true }) {
           </table>
         </div>
       )}
+      <ReplenishmentDetailDialog item={detailItem} onClose={() => setDetailItem(null)} />
     </Card>
   );
 }

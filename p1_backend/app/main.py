@@ -6,11 +6,11 @@ sizing, stockout escalation, warehouse summary, and reporting endpoints.
 import os
 import pandas as pd
 import numpy as np
-from datetime import datetime
+from datetime import datetime, timedelta
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import Optional
+from typing import List, Optional
 
 from app.features import predict_demand
 from app.metadata import SKU_META, REGION_META
@@ -37,11 +37,25 @@ SAFETY_STOCK_Z = 1.65
 # via POST /admin/clear-cache (e.g. after regenerating data).
 _CACHE = {}
 
+# In-memory purchase order store — fine for a hackathon demo, no DB needed.
+# Resets whenever the process restarts.
+_PURCHASE_ORDERS = []
+_PO_COUNTER = 0
+
 
 class PredictRequest(BaseModel):
     sku_id: str
     region: str
     target_date: Optional[str] = None
+
+
+class PurchaseOrderItem(BaseModel):
+    sku_id: str
+    region: str
+
+
+class CreatePurchaseOrdersRequest(BaseModel):
+    items: List[PurchaseOrderItem]
 
 
 def _row_for(sku_id, region):
@@ -342,6 +356,47 @@ def clear_cache():
     n = len(_CACHE)
     _CACHE.clear()
     return {"status": "ok", "entries_cleared": n}
+
+
+@app.post("/purchase-orders/create")
+def create_purchase_orders(req: CreatePurchaseOrdersRequest):
+    global _PO_COUNTER
+    today = datetime.utcnow().date()
+    created = []
+    skipped = []
+
+    for item in req.items:
+        try:
+            rep = _replenish_one(item.sku_id, item.region)
+        except HTTPException:
+            skipped.append({"sku_id": item.sku_id, "region": item.region, "reason": "unknown sku_id/region"})
+            continue
+
+        if not rep["needs_reorder"]:
+            skipped.append({"sku_id": item.sku_id, "region": item.region, "reason": "does not need reorder"})
+            continue
+
+        _PO_COUNTER += 1
+        po = {
+            "po_id": f"PO-{_PO_COUNTER:05d}",
+            "sku_id": rep["sku_id"],
+            "sku_name": rep["sku_name"],
+            "region": rep["region"],
+            "region_name": rep["region_name"],
+            "quantity": rep["suggested_order_qty"],
+            "status": "Pending Approval",
+            "created_at": today.isoformat(),
+            "expected_delivery_date": (today + timedelta(days=int(rep["lead_time_days"]))).isoformat(),
+        }
+        _PURCHASE_ORDERS.append(po)
+        created.append(po)
+
+    return {"created": created, "skipped": skipped}
+
+
+@app.get("/purchase-orders")
+def list_purchase_orders():
+    return list(reversed(_PURCHASE_ORDERS))
 
 
 @app.get("/warehouses/{region_id}")

@@ -9,7 +9,7 @@ import { AlertsPanel } from "@/components/dashboard/AlertsPanel";
 import { WarehouseOverview } from "@/components/dashboard/WarehouseOverview";
 import { FiltersBar } from "@/components/layout/FiltersBar";
 
-export function DashboardPage({ filters, setFilters }) {
+export function DashboardPage({ filters, setFilters, setActivePage }) {
   return (
     <div className="space-y-5">
       <FiltersBar filters={filters} setFilters={setFilters} />
@@ -33,7 +33,7 @@ export function DashboardPage({ filters, setFilters }) {
 
       <div className="grid grid-cols-1 gap-5 xl:grid-cols-3">
         <div className="xl:col-span-2">
-          <ReplenishmentTable limit={6} />
+          <ReplenishmentTable limit={6} onCreatePOs={() => setActivePage("replenishment")} />
         </div>
         <AlertsPanel limit={6} />
       </div>
