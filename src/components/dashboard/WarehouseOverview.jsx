@@ -1,8 +1,10 @@
+import { useState } from "react";
 import { Warehouse as WarehouseIcon, MapPin } from "lucide-react";
 import { Card, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { LoadingState, ErrorState } from "@/components/ui/state";
+import { WarehouseDetailDialog } from "@/components/dashboard/WarehouseDetailDialog";
 import { useRegionSummary } from "@/lib/useRegionSummary";
 import { cn, formatNumber, formatCurrency } from "@/lib/utils";
 
@@ -14,6 +16,7 @@ const statusMeta = {
 
 export function WarehouseOverview() {
   const { data: warehouses, loading, error } = useRegionSummary();
+  const [selected, setSelected] = useState(null);
 
   return (
     <Card>
@@ -35,7 +38,16 @@ export function WarehouseOverview() {
             return (
               <div
                 key={w.id}
-                className="flex flex-col rounded-lg border border-border p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-card-hover"
+                role="button"
+                tabIndex={0}
+                onClick={() => setSelected(w)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    setSelected(w);
+                  }
+                }}
+                className="flex cursor-pointer flex-col rounded-lg border border-border p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-card-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 <div className="flex items-start justify-between">
                   <div>
@@ -86,6 +98,7 @@ export function WarehouseOverview() {
           })}
         </div>
       )}
+      <WarehouseDetailDialog warehouse={selected} onClose={() => setSelected(null)} />
     </Card>
   );
 }
