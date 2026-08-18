@@ -16,7 +16,7 @@ export function DashboardPage({ filters, setFilters, setActivePage }) {
       <KpiCards />
 
       <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
-        <DemandForecastChart />
+        <DemandForecastChart filters={filters} setFilters={setFilters} />
         <HistoricalVsSensedChart />
       </div>
 

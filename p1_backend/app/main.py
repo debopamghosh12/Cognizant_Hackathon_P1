@@ -117,7 +117,9 @@ def health():
 
 @app.get("/reference/skus")
 def list_skus():
-    return [{"sku_id": s, **SKU_META.get(s, {})} for s in sorted(CURRENT.sku_id.unique())]
+    return [{"sku_id": s, **SKU_META.get(s, {}),
+             "criticality": CURRENT[CURRENT.sku_id == s].iloc[0]["sku_criticality"]}
+            for s in sorted(CURRENT.sku_id.unique())]
 
 
 @app.get("/reference/regions")

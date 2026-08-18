@@ -1,4 +1,4 @@
-import { TrendingUp, Target, Activity, Zap } from "lucide-react";
+import { TrendingUp, Target, Activity, ShieldAlert } from "lucide-react";
 import { FiltersBar } from "@/components/layout/FiltersBar";
 import { DemandForecastChart } from "@/components/charts/DemandForecastChart";
 import { HistoricalVsSensedChart } from "@/components/charts/HistoricalVsSensedChart";
@@ -7,23 +7,23 @@ import { Badge } from "@/components/ui/badge";
 import { LoadingState, ErrorState } from "@/components/ui/state";
 import { useApi } from "@/lib/useApi";
 import { api } from "@/lib/api";
-import { cn } from "@/lib/utils";
-
-// "Demand Sensing Uplift" and "Signals Processed / Day" have no backend source yet
-// (no sensed-vs-statistical comparison or signal-ingestion metric exists) — left static.
-const staticStats = [
-  { label: "Demand Sensing Uplift", value: "N/A", icon: Zap, color: "text-teal", bg: "bg-teal/10" },
-  { label: "Signals Processed / Day", value: "N/A", icon: Activity, color: "text-warning", bg: "bg-warning/10" },
-];
 
 export function ForecastPage({ filters, setFilters }) {
   const { data, loading, error } = useApi(
-    (signal) => Promise.all([api.accuracy(3, signal), api.categoryBreakdown(signal)]),
+    (signal) =>
+      Promise.all([
+        api.accuracy(3, signal),
+        api.categoryBreakdown(signal),
+        api.skus(signal),
+        api.forecastAll(undefined, signal),
+      ]),
     [],
     15000
   );
-  const [accuracy, categoryBreakdown] = data || [null, null];
+  const [accuracy, categoryBreakdown, skus, forecastAll] = data || [null, null, null, null];
   const totalDemand = categoryBreakdown ? categoryBreakdown.reduce((s, c) => s + c.demand, 0) : 0;
+  const criticalSkuCount = skus ? skus.filter((s) => s.criticality === "Critical").length : null;
+  const forecastsPerDay = forecastAll ? forecastAll.length : null;
   const fallbackMessage =
     error?.message === "Request timed out"
       ? "Accuracy stats unavailable — try refreshing."
@@ -63,26 +63,36 @@ export function ForecastPage({ filters, setFilters }) {
               </div>
             </div>
           </Card>
-          {staticStats.map((s) => {
-            const Icon = s.icon;
-            return (
-              <Card key={s.label} className="p-5">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-xs font-medium text-muted-foreground">{s.label}</p>
-                    <p className="mt-2 text-2xl font-bold text-foreground font-mono-num">{s.value}</p>
-                  </div>
-                  <div className={cn("flex h-10 w-10 items-center justify-center rounded-lg", s.bg)}>
-                    <Icon className={cn("h-5 w-5", s.color)} />
-                  </div>
-                </div>
-              </Card>
-            );
-          })}
+          <Card className="p-5">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs font-medium text-muted-foreground">Critical SKUs Monitored</p>
+                <p className="mt-2 text-2xl font-bold text-foreground font-mono-num">
+                  {criticalSkuCount != null ? criticalSkuCount : "—"}
+                </p>
+              </div>
+              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-teal/10">
+                <ShieldAlert className="h-5 w-5 text-teal" />
+              </div>
+            </div>
+          </Card>
+          <Card className="p-5">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs font-medium text-muted-foreground">Forecasts Generated / Day</p>
+                <p className="mt-2 text-2xl font-bold text-foreground font-mono-num">
+                  {forecastsPerDay != null ? forecastsPerDay : "—"}
+                </p>
+              </div>
+              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-warning/10">
+                <Activity className="h-5 w-5 text-warning" />
+              </div>
+            </div>
+          </Card>
         </div>
       )}
 
-      <DemandForecastChart />
+      <DemandForecastChart filters={filters} setFilters={setFilters} />
       <HistoricalVsSensedChart />
 
       <Card>
