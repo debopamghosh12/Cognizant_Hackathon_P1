@@ -5,6 +5,7 @@ import { Card, CardHeader, CardTitle, CardDescription } from "@/components/ui/ca
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { LoadingState, ErrorState } from "@/components/ui/state";
+import { ReplenishmentDetailDialog } from "@/components/dashboard/ReplenishmentDetailDialog";
 import { useApi } from "@/lib/useApi";
 import { api } from "@/lib/api";
 import { cn, formatNumber } from "@/lib/utils";
@@ -23,6 +24,7 @@ function statusOf(currentStock, safetyStock) {
 
 export function InventoryPage({ filters, setFilters }) {
   const [query, setQuery] = useState("");
+  const [detailItem, setDetailItem] = useState(null);
   const { data, loading, error } = useApi((signal) =>
     Promise.all([api.forecastAll(undefined, signal), api.replenishAll(signal), api.skus(signal)])
   );
@@ -45,6 +47,13 @@ export function InventoryPage({ filters, setFilters }) {
         safetyStock: Math.round(safetyStock),
         status: statusOf(r.current_row.current_stock, safetyStock),
         leadTimeDays: r.current_row.lead_time_days,
+        // Carried alongside the display fields above (sku/name/warehouse)
+        // so a row can be passed directly to ReplenishmentDetailDialog,
+        // which expects {sku_id, sku_name, region, region_name}.
+        sku_id: r.sku_id,
+        sku_name: r.sku_name,
+        region: r.region,
+        region_name: r.region_name,
       };
     });
   }, [forecastAll, replenishAll, skus]);
@@ -129,7 +138,11 @@ export function InventoryPage({ filters, setFilters }) {
                 </thead>
                 <tbody>
                   {filtered.map((item) => (
-                    <tr key={item.sku + item.warehouse} className="border-b border-border last:border-0 hover:bg-muted/40">
+                    <tr
+                      key={item.sku + item.warehouse}
+                      onClick={() => setDetailItem(item)}
+                      className="cursor-pointer border-b border-border last:border-0 hover:bg-muted/40"
+                    >
                       <td className="px-5 py-3">
                         <p className="font-semibold text-foreground">{item.sku}</p>
                         <p className="text-xs text-muted-foreground">{item.name}</p>
@@ -166,6 +179,7 @@ export function InventoryPage({ filters, setFilters }) {
           </Card>
         </>
       )}
+      <ReplenishmentDetailDialog item={detailItem} onClose={() => setDetailItem(null)} />
     </div>
   );
 }
