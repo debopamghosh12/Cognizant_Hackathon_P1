@@ -1,7 +1,9 @@
+import { useState } from "react";
 import { AlertTriangle, Package2 } from "lucide-react";
 import { Card, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { LoadingState, ErrorState } from "@/components/ui/state";
+import { BatchDetailDialog } from "@/components/dashboard/BatchDetailDialog";
 import { useApi } from "@/lib/useApi";
 import { api } from "@/lib/api";
 import { cn, formatCurrency, formatNumber } from "@/lib/utils";
@@ -20,6 +22,7 @@ export function ExpiryRiskSection({ limit }) {
   const [batches, skus] = data || [null, null];
   const unitBySku = skus ? Object.fromEntries(skus.map((s) => [s.sku_id, s.unit])) : {};
   const items = batches ? batches.slice(0, limit || undefined) : null;
+  const [selected, setSelected] = useState(null);
 
   return (
     <Card>
@@ -39,7 +42,16 @@ export function ExpiryRiskSection({ limit }) {
             return (
               <div
                 key={item.batch_id}
-                className="group rounded-lg border border-border p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-card-hover"
+                role="button"
+                tabIndex={0}
+                onClick={() => setSelected(item)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    setSelected(item);
+                  }
+                }}
+                className="group cursor-pointer rounded-lg border border-border p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-card-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex items-center gap-2">
@@ -95,6 +107,7 @@ export function ExpiryRiskSection({ limit }) {
           )}
         </div>
       )}
+      <BatchDetailDialog batch={selected} onClose={() => setSelected(null)} />
     </Card>
   );
 }
