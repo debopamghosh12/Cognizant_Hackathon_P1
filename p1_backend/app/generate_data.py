@@ -104,8 +104,10 @@ def gen_current_state(history_df):
         remaining_expiries = sorted(rng.integers(5, prof["shelf_life_days"], size=n_batches))
 
         splits = rng.dirichlet(np.ones(n_batches)) * total_stock
+        batch_qtys = []
         for i in range(n_batches):
             qty = round(float(splits[i]), 1)
+            batch_qtys.append(qty)
             exp_days = int(remaining_expiries[i])
             exp_date = (END_DATE + timedelta(days=exp_days)).strftime("%Y-%m-%d")
             batch_rows.append({
@@ -113,12 +115,16 @@ def gen_current_state(history_df):
                 "sku_id": r["sku_id"],
                 "region": r["region"],
                 "quantity": qty,
-                "expiry_days": exp_days,
-                "expiry_date": exp_date,
+                # A zero-quantity batch holds no physical stock, so it can't
+                # have a real expiry date/countdown — null both instead of
+                # keeping the shelf-life draw that produced this "batch".
+                "expiry_days": exp_days if qty > 0 else None,
+                "expiry_date": exp_date if qty > 0 else None,
             })
             batch_counter += 1
 
-        nearest_expiry = int(remaining_expiries[0])
+        positive_expiries = [int(remaining_expiries[i]) for i in range(n_batches) if batch_qtys[i] > 0]
+        nearest_expiry = min(positive_expiries) if positive_expiries else None
         row = r.to_dict()
         row["nearest_batch_expiry_days"] = nearest_expiry
         row["num_batches"] = n_batches

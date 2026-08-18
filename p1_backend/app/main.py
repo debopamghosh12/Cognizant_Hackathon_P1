@@ -76,9 +76,16 @@ def _row_for(sku_id, region):
 def _forecast_one(sku_id, region, target_date=None):
     row = _row_for(sku_id, region)
     tdate = pd.Timestamp(target_date) if target_date else pd.Timestamp(datetime.utcnow().date())
+    # predict_demand gets the raw row (NaN nearest_batch_expiry_days is a
+    # legitimate "missing" signal XGBoost handles natively for stockout
+    # rows), but the JSON-facing copy needs a real null in its place — NaN
+    # isn't valid JSON and Starlette's JSONResponse raises ValueError on it.
     pred = predict_demand(HISTORY, sku_id, region, tdate, row)
+    current_row = dict(row)
+    if pd.isna(current_row["nearest_batch_expiry_days"]):
+        current_row["nearest_batch_expiry_days"] = None
     return {"sku_id": sku_id, "region": region, "date": tdate.strftime("%Y-%m-%d"),
-            "forecast_demand": round(pred, 1), "current_row": row}
+            "forecast_demand": round(pred, 1), "current_row": current_row}
 
 
 def _replenish_one(sku_id, region, fc=None):
@@ -140,11 +147,14 @@ def _build_allocate(sku_id):
     plan = []
     for _, r in rows.iterrows():
         fc = PRECOMPUTED_FORECASTS.get((sku_id, r["region"])) or _forecast_one(sku_id, r["region"])
+        nearest_expiry = r["nearest_batch_expiry_days"]
         plan.append({
             "region": r["region"], "region_name": REGION_META.get(r["region"], {}).get("name", r["region"]),
             "current_stock": r["current_stock"],
             "stock_value": round(r["current_stock"] * unit_price, 1),
-            "nearest_batch_expiry_days": r["nearest_batch_expiry_days"],
+            # None when this DC has no in-stock batch of the SKU (e.g. a
+            # stockout) — there's nothing physically present to expire.
+            "nearest_batch_expiry_days": None if pd.isna(nearest_expiry) else int(nearest_expiry),
             "forecast_demand": fc["forecast_demand"],
             "days_of_cover": round(r["current_stock"] / max(fc["forecast_demand"], 1), 1),
             "is_stockout": bool(r["current_stock"] <= 0),
@@ -152,7 +162,10 @@ def _build_allocate(sku_id):
 
     total_stock = sum(p["current_stock"] for p in plan)
     for p in plan:
-        expiry_urgency = 1 / max(p["nearest_batch_expiry_days"], 1)
+        # No in-stock batch means no expiry urgency to weigh (not 0 days —
+        # there's simply nothing to expire), so this term drops out of the
+        # score rather than spuriously maxing it out.
+        expiry_urgency = 1 / max(p["nearest_batch_expiry_days"], 1) if p["nearest_batch_expiry_days"] is not None else 0
         demand_pull = p["forecast_demand"] / max(sum(x["forecast_demand"] for x in plan), 1)
         score = expiry_urgency * 0.4 + demand_pull * 0.6
         if p["is_stockout"]:
@@ -227,6 +240,10 @@ def alerts():
 @app.get("/inventory/batches")
 def batches(sku_id: Optional[str] = None, region: Optional[str] = None):
     df = BATCHES.copy()
+    # A zero-quantity "batch" holds no physical stock — it isn't a real
+    # batch, so it's excluded here rather than requiring every caller to
+    # filter it out (and possibly render its now-null expiry fields).
+    df = df[df.quantity > 0]
     if sku_id:
         df = df[df.sku_id == sku_id]
     if region:
@@ -392,10 +409,13 @@ def warehouse_detail(region_id: str):
         raise HTTPException(404, f"Unknown region {region_id}")
     skus = []
     for _, r in rows.iterrows():
+        nearest_expiry = r["nearest_batch_expiry_days"]
         skus.append({
             "sku_id": r["sku_id"], "sku_name": SKU_META.get(r["sku_id"], {}).get("name", r["sku_id"]),
             "current_stock": r["current_stock"], "warehouse_capacity": r["warehouse_capacity"],
-            "nearest_batch_expiry_days": r["nearest_batch_expiry_days"],
+            # None when this SKU has no in-stock batch at this DC (a
+            # stockout) — nothing physically present to expire.
+            "nearest_batch_expiry_days": None if pd.isna(nearest_expiry) else int(nearest_expiry),
             "criticality": r["sku_criticality"],
         })
     meta = REGION_META.get(region_id, {})

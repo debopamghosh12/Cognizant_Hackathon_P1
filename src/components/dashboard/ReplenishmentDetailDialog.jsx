@@ -129,18 +129,25 @@ function DetailContent({ skuId, region }) {
           Cross-DC allocation priority
         </h4>
         {myRank && (
-          <p className="mb-3 text-sm text-foreground">
-            This DC ranks{" "}
-            <span className="font-bold text-primary">
-              #{myRank.rank} of {alloc.allocation_plan.length}
-            </span>{" "}
-            for incoming allocation priority on {rep.sku_name}
-            {myRank.is_stockout && (
-              <Badge variant="destructive" className="ml-2">
-                Stockout
-              </Badge>
-            )}
-          </p>
+          <div className="mb-3">
+            <p className="text-sm text-foreground">
+              This DC ranks{" "}
+              <span className="font-bold text-primary">
+                #{myRank.rank} of {alloc.allocation_plan.length}
+              </span>{" "}
+              for incoming allocation priority on {rep.sku_name}
+              {myRank.is_stockout && (
+                <Badge variant="destructive" className="ml-2">
+                  Stockout
+                </Badge>
+              )}
+            </p>
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              Ranked by stockout status first, then forecast demand share and expiry urgency — a DC with
+              no in-stock batch has nothing to weigh for expiry, so ties among stocked-out DCs are broken by
+              demand share alone.
+            </p>
+          </div>
         )}
         <div className="scrollbar-thin overflow-x-auto rounded-lg border border-border">
           <table className="w-full text-sm">
@@ -171,7 +178,9 @@ function DetailContent({ skuId, region }) {
                     {formatNumber(Math.round(p.current_stock))}
                   </td>
                   <td className="px-3 py-2 text-right font-mono-num text-muted-foreground">{p.days_of_cover}</td>
-                  <td className="px-3 py-2 text-right text-muted-foreground">{p.nearest_batch_expiry_days}d</td>
+                  <td className="px-3 py-2 text-right text-muted-foreground">
+                    {p.nearest_batch_expiry_days != null ? `${p.nearest_batch_expiry_days}d` : "—"}
+                  </td>
                 </tr>
               ))}
             </tbody>
